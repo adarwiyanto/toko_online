@@ -8,26 +8,42 @@ inventory_ensure_tables();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
+  $action = (string)($_POST['action'] ?? 'create');
   $name = trim((string)($_POST['name'] ?? ''));
   $branchType = (string)($_POST['branch_type'] ?? 'toko');
+  $isActive = (int)($_POST['is_active'] ?? 1) === 1 ? 1 : 0;
   if ($branchType !== 'toko' && $branchType !== 'dapur') {
     $branchType = 'toko';
   }
 
-  if ($name === '') {
-    inventory_set_flash('error', 'Nama cabang wajib diisi.');
+  if ($action === 'create') {
+    if ($name === '') {
+      inventory_set_flash('error', 'Nama cabang wajib diisi.');
+      redirect(base_url('admin/branches.php'));
+    }
+
+    $now = inventory_now();
+    try {
+      $stmt = db()->prepare("INSERT INTO branches (name, branch_type, is_active, created_at, updated_at) VALUES (?,?,?,?,?)");
+      $stmt->execute([$name, $branchType, $isActive, $now, $now]);
+      inventory_set_flash('ok', 'Cabang berhasil ditambahkan.');
+    } catch (Throwable $e) {
+      inventory_set_flash('error', 'Gagal menambahkan cabang. Nama cabang mungkin sudah digunakan.');
+    }
     redirect(base_url('admin/branches.php'));
   }
 
-  $now = inventory_now();
-  try {
-    $stmt = db()->prepare("INSERT INTO branches (name, branch_type, is_active, created_at, updated_at) VALUES (?,?,?,?,?)");
-    $stmt->execute([$name, $branchType, 1, $now, $now]);
-    inventory_set_flash('ok', 'Cabang berhasil ditambahkan.');
-  } catch (Throwable $e) {
-    inventory_set_flash('error', 'Gagal menambahkan cabang. Nama cabang mungkin sudah digunakan.');
+  if ($action === 'update') {
+    $id = (int)($_POST['id'] ?? 0);
+    if ($id <= 0 || $name === '') {
+      inventory_set_flash('error', 'Data cabang tidak valid.');
+      redirect(base_url('admin/branches.php'));
+    }
+    $stmt = db()->prepare("UPDATE branches SET name=?, branch_type=?, is_active=?, updated_at=? WHERE id=?");
+    $stmt->execute([$name, $branchType, $isActive, inventory_now(), $id]);
+    inventory_set_flash('ok', 'Cabang berhasil diupdate.');
+    redirect(base_url('admin/branches.php'));
   }
-  redirect(base_url('admin/branches.php'));
 }
 
 $branches = db()->query("SELECT * FROM branches ORDER BY id DESC")->fetchAll();
@@ -51,20 +67,20 @@ $flash = inventory_get_flash();
       <?php if ($flash): ?><div class="card" style="margin-bottom:12px"><?php echo e($flash['message']); ?></div><?php endif; ?>
       <div class="card" style="margin-bottom:14px">
         <h3 style="margin-top:0">Tambah Cabang</h3>
-        <form method="post">
+        <form method="post" class="grid cols-2">
           <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
-          <div class="grid cols-2">
-            <div class="row"><label>Nama Cabang</label><input name="name" required></div>
-            <div class="row"><label>Tipe Cabang</label><select name="branch_type"><option value="toko">Toko</option><option value="dapur">Dapur</option></select></div>
-          </div>
-          <button class="btn" type="submit">Simpan Cabang</button>
+          <input type="hidden" name="action" value="create">
+          <div class="row"><label>Nama Cabang</label><input name="name" required></div>
+          <div class="row"><label>Tipe Cabang</label><select name="branch_type"><option value="toko">Toko</option><option value="dapur">Dapur</option></select></div>
+          <div class="row"><label>Status</label><select name="is_active"><option value="1">Aktif</option><option value="0">Nonaktif</option></select></div>
+          <div class="row" style="align-self:end"><button class="btn" type="submit">Simpan Cabang</button></div>
         </form>
       </div>
-      <div class="card">
+      <div class="card" style="overflow-x:auto">
         <h3 style="margin-top:0">Daftar Cabang</h3>
-        <table class="table"><thead><tr><th>Nama</th><th>Tipe</th><th>Status</th></tr></thead><tbody>
+        <table class="table"><thead><tr><th>Nama</th><th>Tipe</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
         <?php foreach ($branches as $b): ?>
-          <tr><td><?php echo e((string)$b['name']); ?></td><td><?php echo e((string)$b['branch_type']); ?></td><td><?php echo (int)$b['is_active'] === 1 ? 'Aktif' : 'Nonaktif'; ?></td></tr>
+          <tr><form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="update"><input type="hidden" name="id" value="<?php echo e((string)$b['id']); ?>"><td><input name="name" value="<?php echo e((string)$b['name']); ?>" required></td><td><select name="branch_type"><option value="toko" <?php echo $b['branch_type']==='toko'?'selected':''; ?>>Toko</option><option value="dapur" <?php echo $b['branch_type']==='dapur'?'selected':''; ?>>Dapur</option></select></td><td><select name="is_active"><option value="1" <?php echo (int)$b['is_active']===1?'selected':''; ?>>Aktif</option><option value="0" <?php echo (int)$b['is_active']===0?'selected':''; ?>>Nonaktif</option></select></td><td><button class="btn" type="submit">Update</button></td></form></tr>
         <?php endforeach; ?>
         </tbody></table>
       </div>

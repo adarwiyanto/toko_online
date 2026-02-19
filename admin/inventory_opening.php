@@ -8,6 +8,8 @@ inventory_ensure_tables();
 
 $u = current_user();
 $userId = (int)($u['id'] ?? 0);
+$branchId = inventory_active_branch_id();
+$branch = inventory_active_branch();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
@@ -33,20 +35,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $now = inventory_now();
   db()->beginTransaction();
   try {
-    $stmt = db()->prepare("INSERT INTO inv_opening_stock (created_by, created_at) VALUES (?,?)");
-    $stmt->execute([$userId, $now]);
+    $stmt = db()->prepare("INSERT INTO inv_opening_stock (branch_id, created_by, created_at) VALUES (?,?,?)");
+    $stmt->execute([$branchId, $userId, $now]);
     $openingId = (int)db()->lastInsertId();
 
     $stmtItem = db()->prepare("INSERT INTO inv_opening_stock_items (opening_id, product_id, qty) VALUES (?,?,?)");
-    $stmtLedger = db()->prepare("INSERT INTO inv_stock_ledger (product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, 'OPENING', ?, ?, 0, 'Stock awal', ?)");
+    $stmtLedger = db()->prepare("INSERT INTO inv_stock_ledger (branch_id, product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, 'OPENING', ?, ?, 0, 'Stock awal', ?)");
 
     foreach ($items as $pid => $qty) {
       $stmtItem->execute([$openingId, $pid, $qty]);
       if ($qty >= 0) {
-        $stmtLedger->execute([$pid, $openingId, $qty, $now]);
+        $stmtLedger->execute([$branchId, $pid, $openingId, $qty, $now]);
       } else {
-        $stmtOut = db()->prepare("INSERT INTO inv_stock_ledger (product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, 'OPENING', ?, 0, ?, 'Stock awal', ?)");
-        $stmtOut->execute([$pid, $openingId, abs($qty), $now]);
+        $stmtOut = db()->prepare("INSERT INTO inv_stock_ledger (branch_id, product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, 'OPENING', ?, 0, ?, 'Stock awal', ?)");
+        $stmtOut->execute([$branchId, $pid, $openingId, abs($qty), $now]);
       }
     }
     db()->commit();
@@ -59,7 +61,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $products = db()->query("SELECT id, name, sku, unit FROM inv_products WHERE is_deleted=0 AND is_hidden=0 ORDER BY name ASC")->fetchAll();
-$openingCount = (int)db()->query("SELECT COUNT(*) AS c FROM inv_opening_stock")->fetch()['c'];
+$stmtOpening = db()->prepare("SELECT COUNT(*) AS c FROM inv_opening_stock WHERE branch_id=?");
+$stmtOpening->execute([$branchId]);
+$openingCount = (int)$stmtOpening->fetch()['c'];
 $flash = inventory_get_flash();
 $customCss = setting('custom_css', '');
 ?>
@@ -85,7 +89,7 @@ $customCss = setting('custom_css', '');
       <?php if ($openingCount > 0): ?><div class="card" style="margin-bottom:12px">Perhatian: Stock awal sudah pernah diinput sebelumnya (<?php echo e((string)$openingCount); ?> dokumen).</div><?php endif; ?>
       <?php if ($flash): ?><div class="card" style="margin-bottom:12px"><?php echo e($flash['message']); ?></div><?php endif; ?>
       <div class="card">
-        <h3 style="margin-top:0">Input Stock Awal</h3>
+        <h3 style="margin-top:0">Input Stock Awal</h3><p>Cabang aktif: <strong><?php echo e((string)($branch['name'] ?? '-')); ?></strong></p>
         <form method="post">
           <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
           <table class="table">

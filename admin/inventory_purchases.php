@@ -3,11 +3,18 @@ require_once __DIR__ . '/inventory_helpers.php';
 require_once __DIR__ . '/../core/csrf.php';
 
 start_secure_session();
-require_role(['owner', 'admin']);
+require_login();
 inventory_ensure_tables();
 
 $u = current_user();
+$role = (string)($u['role'] ?? '');
+if (!in_array($role, ['owner','admin','manager_toko','pegawai_pos','pegawai_non_pos'], true)) {
+  http_response_code(403);
+  exit('Forbidden');
+}
 $userId = (int)($u['id'] ?? 0);
+$branchId = inventory_active_branch_id();
+$branch = inventory_active_branch();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
@@ -51,16 +58,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $now = inventory_now();
   db()->beginTransaction();
   try {
-    $stmt = db()->prepare("INSERT INTO inv_purchases (purchase_date, supplier_name, note, created_by, created_at) VALUES (?,?,?,?,?)");
-    $stmt->execute([$purchaseDate, $supplierName !== '' ? $supplierName : null, $note !== '' ? $note : null, $userId, $now]);
+    $stmt = db()->prepare("INSERT INTO inv_purchases (branch_id, purchase_date, supplier_name, note, created_by, created_at) VALUES (?,?,?,?,?,?)");
+    $stmt->execute([$branchId, $purchaseDate, $supplierName !== '' ? $supplierName : null, $note !== '' ? $note : null, $userId, $now]);
     $purchaseId = (int)db()->lastInsertId();
 
     $stmtItem = db()->prepare("INSERT INTO inv_purchase_items (purchase_id, product_id, qty, unit_cost, line_total) VALUES (?,?,?,?,?)");
-    $stmtLedger = db()->prepare("INSERT INTO inv_stock_ledger (product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, 'PURCHASE', ?, ?, 0, 'Pembelian pihak ketiga', ?)");
+    $stmtLedger = db()->prepare("INSERT INTO inv_stock_ledger (branch_id, product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, 'PURCHASE', ?, ?, 0, 'Pembelian pihak ketiga', ?)");
 
     foreach ($items as $item) {
       $stmtItem->execute([$purchaseId, $item['product_id'], $item['qty'], $item['unit_cost'], $item['line_total']]);
-      $stmtLedger->execute([$item['product_id'], $purchaseId, $item['qty'], $now]);
+      $stmtLedger->execute([$branchId, $item['product_id'], $purchaseId, $item['qty'], $now]);
 
       $stmtUpdateCost = db()->prepare("UPDATE inv_products SET cost_price=?, updated_at=? WHERE id=?");
       $stmtUpdateCost->execute([$item['unit_cost'], $now, $item['product_id']]);
@@ -76,8 +83,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   redirect(base_url('admin/inventory_purchases.php'));
 }
 
-$products = db()->query("SELECT id, name, sku, unit FROM inv_products WHERE is_deleted=0 AND is_hidden=0 AND audience='toko' AND type='FINISHED' ORDER BY name ASC")->fetchAll();
-$recentPurchases = db()->query("SELECT p.id, p.purchase_date, p.supplier_name, p.note, COALESCE(SUM(i.line_total),0) AS total FROM inv_purchases p LEFT JOIN inv_purchase_items i ON i.purchase_id=p.id GROUP BY p.id ORDER BY p.id DESC LIMIT 10")->fetchAll();
+$products = db()->query("SELECT id, name, sku, unit FROM inv_products WHERE is_deleted=0 AND is_hidden=0 AND audience='toko' AND (type='FINISHED' OR kitchen_group='finished') ORDER BY name ASC")->fetchAll();
+$stmtRecent = db()->prepare("SELECT p.id, p.purchase_date, p.supplier_name, p.note, COALESCE(SUM(i.line_total),0) AS total FROM inv_purchases p LEFT JOIN inv_purchase_items i ON i.purchase_id=p.id WHERE p.branch_id=? GROUP BY p.id ORDER BY p.id DESC LIMIT 10");
+$stmtRecent->execute([$branchId]);
+$recentPurchases = $stmtRecent->fetchAll();
 $flash = inventory_get_flash();
 $customCss = setting('custom_css', '');
 ?>
@@ -103,7 +112,7 @@ $customCss = setting('custom_css', '');
       <?php if ($flash): ?><div class="card" style="margin-bottom:12px"><?php echo e($flash['message']); ?></div><?php endif; ?>
 
       <div class="card" style="margin-bottom:14px">
-        <h3 style="margin-top:0">Input Pembelian Pihak Ketiga (Produk Finished Toko)</h3>
+        <h3 style="margin-top:0">Input Pembelian Pihak Ketiga (Produk Finished Toko)</h3><p>Cabang aktif: <strong><?php echo e((string)($branch['name'] ?? '-')); ?></strong></p>
         <form method="post">
           <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
           <div class="grid cols-2">
