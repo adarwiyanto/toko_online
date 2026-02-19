@@ -202,7 +202,14 @@ function inventory_ensure_tables(): void {
     CONSTRAINT fk_inv_kitchen_transfer_items_transfer FOREIGN KEY (transfer_id) REFERENCES inv_kitchen_transfers(id),
     CONSTRAINT fk_inv_kitchen_transfer_items_product FOREIGN KEY (product_id) REFERENCES inv_products(id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+  try { db()->exec("ALTER TABLE inv_stock_ledger ADD COLUMN branch_id INT NULL AFTER id"); } catch (Throwable $e) {}
+  try { db()->exec("ALTER TABLE inv_stock_opname ADD COLUMN branch_id INT NULL AFTER id"); } catch (Throwable $e) {}
+  try { db()->exec("ALTER TABLE inv_opening_stock ADD COLUMN branch_id INT NULL AFTER id"); } catch (Throwable $e) {}
+  try { db()->exec("ALTER TABLE inv_purchases ADD COLUMN branch_id INT NULL AFTER id"); } catch (Throwable $e) {}
 }
+
+
 
 function ensure_products_hidden_column(): void {
   static $ensured = false;
@@ -275,12 +282,17 @@ function inventory_sync_finished_product_to_pos(array $inventoryProduct): void {
 }
 
 function inventory_stock_map(array $productIds): array {
+  $branchId = inventory_active_branch_id();
+  if ($branchId <= 0) {
+    return [];
+  }
   if (count($productIds) === 0) {
     return [];
   }
   $placeholders = implode(',', array_fill(0, count($productIds), '?'));
-  $stmt = db()->prepare("SELECT product_id, COALESCE(SUM(qty_in - qty_out),0) AS stock_qty FROM inv_stock_ledger WHERE product_id IN ($placeholders) GROUP BY product_id");
-  $stmt->execute(array_values($productIds));
+  $stmt = db()->prepare("SELECT product_id, COALESCE(SUM(qty_in - qty_out),0) AS stock_qty FROM inv_stock_ledger WHERE branch_id=? AND product_id IN ($placeholders) GROUP BY product_id");
+  $params = array_merge([$branchId], array_values($productIds));
+  $stmt->execute($params);
   $rows = $stmt->fetchAll();
   $map = [];
   foreach ($rows as $row) {
@@ -290,10 +302,89 @@ function inventory_stock_map(array $productIds): array {
 }
 
 function inventory_stock_by_product(int $productId): float {
-  $stmt = db()->prepare("SELECT COALESCE(SUM(qty_in - qty_out),0) AS stock_qty FROM inv_stock_ledger WHERE product_id=?");
-  $stmt->execute([$productId]);
+  $branchId = inventory_active_branch_id();
+  return inv_get_stock($branchId, $productId);
+}
+
+function inv_get_stock(int $branchId, int $productId): float {
+  if ($branchId <= 0 || $productId <= 0) {
+    return 0.0;
+  }
+  $stmt = db()->prepare("SELECT COALESCE(SUM(qty_in - qty_out),0) AS stock_qty FROM inv_stock_ledger WHERE branch_id=? AND product_id=?");
+  $stmt->execute([$branchId, $productId]);
   $row = $stmt->fetch();
   return (float)($row['stock_qty'] ?? 0);
+}
+
+function inventory_user_branch(array $user): ?array {
+  $branchId = (int)($user['branch_id'] ?? 0);
+  if ($branchId <= 0) {
+    return null;
+  }
+  $stmt = db()->prepare("SELECT * FROM branches WHERE id=? LIMIT 1");
+  $stmt->execute([$branchId]);
+  $row = $stmt->fetch();
+  return $row ?: null;
+}
+
+function inventory_active_branch_id(): int {
+  start_secure_session();
+  $u = current_user();
+  if (!$u) {
+    return 0;
+  }
+  $role = (string)($u['role'] ?? '');
+  if (in_array($role, ['owner', 'admin'], true)) {
+    $sessionBranch = (int)($_SESSION['inventory_branch_id'] ?? 0);
+    if ($sessionBranch > 0) {
+      return $sessionBranch;
+    }
+    $stmt = db()->query("SELECT id FROM branches WHERE is_active=1 ORDER BY id ASC LIMIT 1");
+    $first = $stmt->fetch();
+    if ($first) {
+      $_SESSION['inventory_branch_id'] = (int)$first['id'];
+      return (int)$first['id'];
+    }
+    return 0;
+  }
+  return (int)($u['branch_id'] ?? 0);
+}
+
+function inventory_active_branch(): ?array {
+  $branchId = inventory_active_branch_id();
+  if ($branchId <= 0) {
+    return null;
+  }
+  $stmt = db()->prepare("SELECT * FROM branches WHERE id=? LIMIT 1");
+  $stmt->execute([$branchId]);
+  $row = $stmt->fetch();
+  return $row ?: null;
+}
+
+function inventory_handle_branch_context_post(): void {
+  if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    return;
+  }
+  if (($_POST['action'] ?? '') !== 'set_branch_context') {
+    return;
+  }
+  csrf_check();
+  $u = current_user();
+  $role = (string)($u['role'] ?? '');
+  if (!in_array($role, ['owner', 'admin'], true)) {
+    redirect($_SERVER['REQUEST_URI'] ?? base_url('admin/dashboard.php'));
+  }
+  $branchId = (int)($_POST['branch_id'] ?? 0);
+  $stmt = db()->prepare("SELECT id FROM branches WHERE id=? AND is_active=1 LIMIT 1");
+  $stmt->execute([$branchId]);
+  if ($stmt->fetch()) {
+    $_SESSION['inventory_branch_id'] = $branchId;
+  }
+  redirect($_SERVER['REQUEST_URI'] ?? base_url('admin/dashboard.php'));
+}
+
+function inventory_branch_options(): array {
+  return db()->query("SELECT id, name, branch_type FROM branches WHERE is_active=1 ORDER BY name ASC")->fetchAll();
 }
 
 function inventory_set_flash(string $type, string $message): void {

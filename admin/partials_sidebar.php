@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/auth.php';
+require_once __DIR__ . '/../core/csrf.php';
+require_once __DIR__ . '/inventory_helpers.php';
 
 $appName = app_config()['app']['name'];
 $u = current_user();
@@ -12,6 +14,14 @@ if (!empty($u['avatar_path'])) {
   $avatarUrl = upload_url($u['avatar_path'], 'image');
 }
 $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
+
+inventory_handle_branch_context_post();
+$activeBranch = inventory_active_branch();
+$activeBranchId = (int)($activeBranch['id'] ?? 0);
+$branchOptions = [];
+if (in_array($role, ['owner', 'admin'], true)) {
+  $branchOptions = inventory_branch_options();
+}
 ?>
 <div class="sidebar">
   <div class="sb-top">
@@ -37,6 +47,26 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
     </div>
   </div>
 
+
+  <div class="card" style="margin:10px;padding:10px">
+    <div style="font-size:12px;opacity:.8;margin-bottom:6px">Cabang Aktif</div>
+    <?php if (in_array($role, ['owner', 'admin'], true)): ?>
+      <form method="post">
+        <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+        <input type="hidden" name="action" value="set_branch_context">
+        <select name="branch_id" onchange="this.form.submit()" style="width:100%">
+          <?php foreach ($branchOptions as $bo): ?>
+            <option value="<?php echo e((string)$bo['id']); ?>" <?php echo (int)$bo['id'] === $activeBranchId ? 'selected' : ''; ?>>
+              <?php echo e((string)$bo['name']); ?> (<?php echo e((string)$bo['branch_type']); ?>)
+            </option>
+          <?php endforeach; ?>
+        </select>
+      </form>
+    <?php else: ?>
+      <div style="font-weight:600"><?php echo e((string)($activeBranch['name'] ?? '-')); ?></div>
+      <div style="font-size:12px;opacity:.8"><?php echo e((string)($activeBranch['branch_type'] ?? '-')); ?></div>
+    <?php endif; ?>
+  </div>
   <div class="nav">
     <?php if ($isManagerToko): ?>
       <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='schedule.php')?'active':''; ?>" href="<?php echo e(base_url('admin/schedule.php')); ?>"><div class="mi">📅</div><div class="label">Jadwal Pegawai</div></a></div>

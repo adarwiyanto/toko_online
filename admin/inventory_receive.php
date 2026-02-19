@@ -13,6 +13,8 @@ if (!in_array($role, ['owner','admin','manager_toko','pegawai_pos','pegawai_non_
   exit('Forbidden');
 }
 $userId = (int)($u['id'] ?? 0);
+$branchId = inventory_active_branch_id();
+$branch = inventory_active_branch();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
@@ -25,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $h = db()->prepare("SELECT * FROM inv_kitchen_transfers WHERE id=? FOR UPDATE");
     $h->execute([$transferId]);
     $header = $h->fetch();
-    if (!$header || (string)$header['status'] !== 'SENT') {
+    if (!$header || (string)$header['status'] !== 'SENT' || (int)$header['target_branch_id'] !== $branchId) {
       throw new RuntimeException('invalid');
     }
 
@@ -34,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $items = $itemsStmt->fetchAll();
 
     $up = db()->prepare("UPDATE inv_kitchen_transfer_items SET qty_received=?, note=? WHERE id=?");
-    $ledger = db()->prepare("INSERT INTO inv_stock_ledger (product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, 'KITCHEN_RECEIVE', ?, ?, 0, ?, ?)");
+    $ledger = db()->prepare("INSERT INTO inv_stock_ledger (branch_id, product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, ?, 'KITCHEN_RECEIVE', ?, ?, 0, ?, ?)");
     $now = inventory_now();
 
     foreach ($items as $item) {
@@ -43,9 +45,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $qtyReceived = isset($qtyMap[$itemId]) ? (float)$qtyMap[$itemId] : $qtySent;
       if ($qtyReceived < 0) $qtyReceived = 0;
       $note = trim((string)($noteMap[$itemId] ?? ''));
+      if (abs($qtyReceived - $qtySent) > 0.0005 && $note === '') {
+        throw new RuntimeException('Alasan wajib jika qty terima beda qty kirim.');
+      }
       $up->execute([$qtyReceived, $note !== '' ? $note : null, $itemId]);
       if ($qtyReceived > 0) {
-        $ledger->execute([(int)$item['product_id'], $transferId, $qtyReceived, 'Penerimaan dari dapur', $now]);
+        $ledger->execute([$branchId, (int)$item['product_id'], $transferId, $qtyReceived, 'Penerimaan dari dapur', $now]);
       }
     }
 
@@ -55,19 +60,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     inventory_set_flash('ok', 'Penerimaan kiriman berhasil dikonfirmasi dan masuk stok toko.');
   } catch (Throwable $e) {
     db()->rollBack();
-    inventory_set_flash('error', 'Gagal konfirmasi penerimaan.');
+    inventory_set_flash('error', 'Gagal konfirmasi penerimaan. ' . $e->getMessage());
   }
   redirect(base_url('admin/inventory_receive.php'));
 }
 
-$list = db()->query("SELECT t.*, u.name AS sender_name FROM inv_kitchen_transfers t LEFT JOIN users u ON u.id=t.created_by WHERE t.status='SENT' ORDER BY t.id DESC")->fetchAll();
+$stmt = db()->prepare("SELECT t.*, u.name AS sender_name, b1.name AS source_name FROM inv_kitchen_transfers t LEFT JOIN users u ON u.id=t.created_by LEFT JOIN branches b1 ON b1.id=t.source_branch_id WHERE t.status='SENT' AND t.target_branch_id=? ORDER BY t.id DESC");
+$stmt->execute([$branchId]);
+$list = $stmt->fetchAll();
 $flash = inventory_get_flash();
 ?>
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Penerimaan Stok Toko</title><link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>"></head><body>
 <div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?><div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button><span style="color:#fff;font-weight:700">Penerimaan Kiriman Dapur</span></div><div class="content">
 <?php if ($flash): ?><div class="card" style="margin-bottom:12px"><?php echo e($flash['message']); ?></div><?php endif; ?>
+<div class="card" style="margin-bottom:12px">Cabang toko aktif: <strong><?php echo e((string)($branch['name'] ?? '-')); ?></strong></div>
 <?php foreach($list as $h): ?>
   <?php $it = db()->prepare("SELECT i.*,p.name,p.unit FROM inv_kitchen_transfer_items i JOIN inv_products p ON p.id=i.product_id WHERE i.transfer_id=?"); $it->execute([(int)$h['id']]); $items=$it->fetchAll(); ?>
-  <div class="card" style="margin-bottom:12px"><h3 style="margin-top:0">Kiriman #<?php echo e((string)$h['id']); ?> - <?php echo e((string)$h['transfer_date']); ?></h3><p>Pengirim: <?php echo e((string)$h['sender_name']); ?></p><form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="transfer_id" value="<?php echo e((string)$h['id']); ?>"><table class="table"><thead><tr><th>Produk</th><th>Qty Kirim</th><th>Qty Diterima</th><th>Catatan</th></tr></thead><tbody><?php foreach($items as $row): ?><tr><td><?php echo e($row['name']); ?></td><td><?php echo e(number_format((float)$row['qty_sent'],3,'.',',')); ?> <?php echo e((string)$row['unit']); ?></td><td><input type="number" step="0.001" min="0" name="qty_received[<?php echo e((string)$row['id']); ?>]" value="<?php echo e((string)$row['qty_sent']); ?>"></td><td><input type="text" name="item_note[<?php echo e((string)$row['id']); ?>]" value=""></td></tr><?php endforeach; ?></tbody></table><button class="btn" type="submit">Konfirmasi Penerimaan</button></form></div>
+  <div class="card" style="margin-bottom:12px"><h3 style="margin-top:0">Kiriman #<?php echo e((string)$h['id']); ?> - <?php echo e((string)$h['transfer_date']); ?></h3><p>Asal: <?php echo e((string)$h['source_name']); ?> | Pengirim: <?php echo e((string)$h['sender_name']); ?></p><form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="transfer_id" value="<?php echo e((string)$h['id']); ?>"><div style="overflow-x:auto"><table class="table"><thead><tr><th>Produk</th><th>Qty Kirim</th><th>Qty Diterima</th><th>Catatan</th></tr></thead><tbody><?php foreach($items as $row): ?><tr><td><?php echo e($row['name']); ?></td><td><?php echo e(number_format((float)$row['qty_sent'],3,'.',',')); ?> <?php echo e((string)$row['unit']); ?></td><td><input type="number" step="0.001" min="0" name="qty_received[<?php echo e((string)$row['id']); ?>]" value="<?php echo e((string)$row['qty_sent']); ?>"></td><td><textarea name="item_note[<?php echo e((string)$row['id']); ?>]" rows="2" placeholder="Wajib isi jika qty diterima beda."></textarea></td></tr><?php endforeach; ?></tbody></table></div><button class="btn" type="submit" style="width:100%">Konfirmasi Penerimaan</button></form></div>
 <?php endforeach; ?>
 </div></div></div><script defer src="<?php echo e(asset_url('assets/app.js')); ?>"></script></body></html>
