@@ -22,16 +22,43 @@ function inventory_now(): string {
   return date('Y-m-d H:i:s');
 }
 
+function inventory_log_error(string $context, Throwable $e): void {
+  $dir = __DIR__ . '/../logs';
+  if (!is_dir($dir)) {
+    @mkdir($dir, 0775, true);
+  }
+  $line = sprintf(
+    "[%s] %s | %s in %s:%d\n",
+    inventory_now(),
+    $context,
+    $e->getMessage(),
+    $e->getFile(),
+    $e->getLine()
+  );
+  @file_put_contents($dir . '/app.log', $line, FILE_APPEND);
+}
+
 function inventory_ensure_tables(): void {
   db()->exec("CREATE TABLE IF NOT EXISTS branches (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(50) NULL,
     name VARCHAR(120) NOT NULL,
-    branch_type ENUM('toko','dapur') NOT NULL,
+    address TEXT NULL,
+    branch_type ENUM('toko','dapur') NOT NULL DEFAULT 'toko',
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    UNIQUE KEY uq_branch_name (name)
+    UNIQUE KEY uq_branch_name (name),
+    UNIQUE KEY uq_branch_code (code)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+  try { db()->exec("ALTER TABLE branches ADD COLUMN code VARCHAR(50) NULL AFTER id"); } catch (Throwable $e) {}
+  try { db()->exec("ALTER TABLE branches ADD COLUMN address TEXT NULL AFTER name"); } catch (Throwable $e) {}
+  try { db()->exec("ALTER TABLE branches ADD COLUMN branch_type ENUM('toko','dapur') NOT NULL DEFAULT 'toko' AFTER address"); } catch (Throwable $e) {}
+  try { db()->exec("ALTER TABLE branches ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER branch_type"); } catch (Throwable $e) {}
+  try { db()->exec("ALTER TABLE branches ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER is_active"); } catch (Throwable $e) {}
+  try { db()->exec("ALTER TABLE branches ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at"); } catch (Throwable $e) {}
+  try { db()->exec("CREATE UNIQUE INDEX uq_branch_code ON branches (code)"); } catch (Throwable $e) {}
 
   try {
     $stmt = db()->query("SHOW COLUMNS FROM users LIKE 'branch_id'");
@@ -170,6 +197,18 @@ function inventory_ensure_tables(): void {
     INDEX idx_inv_purchase_items_product (product_id),
     CONSTRAINT fk_inv_purchase_items_purchase FOREIGN KEY (purchase_id) REFERENCES inv_purchases(id),
     CONSTRAINT fk_inv_purchase_items_product FOREIGN KEY (product_id) REFERENCES inv_products(id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+  db()->exec("CREATE TABLE IF NOT EXISTS branch_product_price (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    branch_id INT NOT NULL,
+    product_id INT NOT NULL,
+    sell_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL,
+    UNIQUE KEY uq_branch_product_price (branch_id, product_id),
+    INDEX idx_branch_product_price_product (product_id),
+    CONSTRAINT fk_branch_product_price_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+    CONSTRAINT fk_branch_product_price_product FOREIGN KEY (product_id) REFERENCES inv_products(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
   ensure_products_hidden_column();
