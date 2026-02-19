@@ -22,30 +22,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $supplierName = trim((string)($_POST['supplier_name'] ?? ''));
   $note = trim((string)($_POST['note'] ?? ''));
   $qtyMap = $_POST['qty'] ?? [];
-  $unitCostMap = $_POST['unit_cost'] ?? [];
+  $buyPriceMap = $_POST['buy_price'] ?? [];
 
   if (!is_array($qtyMap)) {
     $qtyMap = [];
   }
-  if (!is_array($unitCostMap)) {
-    $unitCostMap = [];
+  if (!is_array($buyPriceMap)) {
+    $buyPriceMap = [];
   }
 
   $items = [];
   foreach ($qtyMap as $productId => $qtyRaw) {
     $pid = (int)$productId;
     $qty = (float)$qtyRaw;
-    $unitCost = isset($unitCostMap[$productId]) && $unitCostMap[$productId] !== '' ? (float)$unitCostMap[$productId] : 0.0;
+    $buyPrice = isset($buyPriceMap[$productId]) && $buyPriceMap[$productId] !== '' ? (float)$buyPriceMap[$productId] : 0.0;
     if ($pid > 0 && $qty > 0) {
-      if ($unitCost <= 0) {
+      if ($buyPrice <= 0) {
         inventory_set_flash('error', 'Harga pokok pembelian wajib diisi untuk qty yang dibeli.');
         redirect(base_url('admin/inventory_purchases.php'));
       }
       $items[] = [
         'product_id' => $pid,
         'qty' => $qty,
-        'unit_cost' => $unitCost,
-        'line_total' => $qty * $unitCost,
+        'buy_price' => $buyPrice,
+        'line_total' => $qty * $buyPrice,
       ];
     }
   }
@@ -63,14 +63,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $purchaseId = (int)db()->lastInsertId();
 
     $stmtItem = db()->prepare("INSERT INTO inv_purchase_items (purchase_id, product_id, qty, unit_cost, line_total) VALUES (?,?,?,?,?)");
-    $stmtLedger = db()->prepare("INSERT INTO inv_stock_ledger (branch_id, product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, 'PURCHASE', ?, ?, 0, 'Pembelian pihak ketiga', ?)");
+    $stmtLedger = db()->prepare("INSERT INTO inv_stock_ledger (branch_id, product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, ?, 'PURCHASE', ?, ?, 0, 'Pembelian pihak ketiga', ?)");
 
     foreach ($items as $item) {
-      $stmtItem->execute([$purchaseId, $item['product_id'], $item['qty'], $item['unit_cost'], $item['line_total']]);
+      $stmtItem->execute([$purchaseId, $item['product_id'], $item['qty'], $item['buy_price'], $item['line_total']]);
       $stmtLedger->execute([$branchId, $item['product_id'], $purchaseId, $item['qty'], $now]);
-
-      $stmtUpdateCost = db()->prepare("UPDATE inv_products SET cost_price=?, updated_at=? WHERE id=?");
-      $stmtUpdateCost->execute([$item['unit_cost'], $now, $item['product_id']]);
     }
 
     db()->commit();
@@ -121,7 +118,7 @@ $customCss = setting('custom_css', '');
           </div>
           <div class="row"><label>Catatan</label><input type="text" name="note"></div>
           <table class="table">
-            <thead><tr><th>Produk</th><th>SKU</th><th>Unit</th><th>Qty Beli</th><th>Harga Pokok</th></tr></thead>
+            <thead><tr><th>Produk</th><th>SKU</th><th>Unit</th><th>Qty Beli</th><th>Harga Beli</th></tr></thead>
             <tbody>
             <?php foreach ($products as $p): ?>
               <tr>
@@ -129,7 +126,7 @@ $customCss = setting('custom_css', '');
                 <td><?php echo e((string)$p['sku']); ?></td>
                 <td><?php echo e($p['unit']); ?></td>
                 <td><input type="number" step="0.001" min="0" name="qty[<?php echo e((string)$p['id']); ?>]" value="0"></td>
-                <td><input type="number" step="0.01" min="0" name="unit_cost[<?php echo e((string)$p['id']); ?>]" value="0"></td>
+                <td><input type="number" step="0.01" min="0" name="buy_price[<?php echo e((string)$p['id']); ?>]" value="0"></td>
               </tr>
             <?php endforeach; ?>
             </tbody>

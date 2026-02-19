@@ -86,13 +86,14 @@ if (in_array($role, ['owner', 'admin'], true)) {
       <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='dashboard.php')?'active':''; ?>" href="<?php echo e(base_url('admin/dashboard.php')); ?>"><div class="mi">🏠</div><div class="label">Dasbor</div></a></div>
 
       <div class="item">
-        <button type="button" data-toggle-submenu="#m-produk"><div class="mi">📦</div><div class="label">Produk & Inventori</div><div class="chev">▾</div></button>
+        <button type="button" data-toggle-submenu="#m-produk"><div class="mi">📦</div><div class="label">Produk & Inventory</div><div class="chev">▾</div></button>
         <div class="submenu" id="m-produk">
           <a href="<?php echo e(base_url('admin/products.php')); ?>">Produk POS</a>
           <a href="<?php echo e(base_url('admin/product_categories.php')); ?>">Kategori Produk</a>
           <?php if (in_array($u['role'] ?? '', ['owner', 'admin'], true)): ?>
             <a href="<?php echo e(base_url('admin/branches.php')); ?>">Cabang</a>
-            <a href="<?php echo e(base_url('admin/inventory_products.php')); ?>">Produk</a>
+            <a href="<?php echo e(base_url('admin/inventory_products.php')); ?>">Produk (Global)</a>
+            <a href="<?php echo e(base_url('admin/inventory_branch_prices.php')); ?>">Harga Jual Cabang</a>
             <a href="<?php echo e(base_url('admin/inventory_opening.php')); ?>">Stock Awal</a>
             <a href="<?php echo e(base_url('admin/inventory_purchases.php')); ?>">Pembelian Pihak Ketiga</a>
             <a href="<?php echo e(base_url('admin/inventory_kitchen_transfers.php')); ?>">Kirim Dapur ke Toko</a>
