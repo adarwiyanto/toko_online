@@ -25,7 +25,7 @@ function inventory_now(): string {
 function inventory_log_error(string $context, Throwable $e): void {
   $dir = __DIR__ . '/../logs';
   if (!is_dir($dir)) {
-    @mkdir($dir, 0775, true);
+    @mkdir($dir, 0755, true);
   }
   $line = sprintf(
     "[%s] %s | %s in %s:%d\n",
@@ -36,6 +36,48 @@ function inventory_log_error(string $context, Throwable $e): void {
     $e->getLine()
   );
   @file_put_contents($dir . '/app.log', $line, FILE_APPEND);
+}
+
+function inventory_column_exists(string $table, string $column): bool {
+  static $cache = [];
+  $key = strtolower($table . '.' . $column);
+  if (array_key_exists($key, $cache)) {
+    return $cache[$key];
+  }
+
+  $stmt = db()->prepare("SHOW COLUMNS FROM `$table` LIKE ?");
+  $stmt->execute([$column]);
+  $cache[$key] = (bool)$stmt->fetch();
+  return $cache[$key];
+}
+
+function inventory_constraint_exists(string $table, string $constraint): bool {
+  $sql = "SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ? LIMIT 1";
+  $stmt = db()->prepare($sql);
+  $stmt->execute([$table, $constraint]);
+  return (bool)$stmt->fetchColumn();
+}
+
+function inventory_is_duplicate_key(Throwable $e): bool {
+  if (!($e instanceof PDOException)) {
+    return false;
+  }
+  return $e->getCode() === '23000';
+}
+
+function inventory_user_friendly_db_error(Throwable $e): string {
+  if (inventory_is_duplicate_key($e)) {
+    $message = strtolower((string)$e->getMessage());
+    if (strpos($message, 'uq_branch_code') !== false || strpos($message, 'for key \'code\'') !== false) {
+      return 'Kode cabang sudah dipakai.';
+    }
+    if (strpos($message, 'uq_branch_name') !== false || strpos($message, 'for key \'name\'') !== false) {
+      return 'Nama cabang sudah dipakai.';
+    }
+    return 'Data sudah digunakan.';
+  }
+
+  return 'Terjadi kendala saat menyimpan data. Silakan coba lagi.';
 }
 
 function inventory_ensure_tables(): void {
@@ -52,17 +94,32 @@ function inventory_ensure_tables(): void {
     UNIQUE KEY uq_branch_code (code)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
-  try { db()->exec("ALTER TABLE branches ADD COLUMN code VARCHAR(50) NULL AFTER id"); } catch (Throwable $e) {}
-  try { db()->exec("ALTER TABLE branches ADD COLUMN address TEXT NULL AFTER name"); } catch (Throwable $e) {}
-  try { db()->exec("ALTER TABLE branches ADD COLUMN branch_type ENUM('toko','dapur') NOT NULL DEFAULT 'toko' AFTER address"); } catch (Throwable $e) {}
-  try { db()->exec("ALTER TABLE branches ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER branch_type"); } catch (Throwable $e) {}
-  try { db()->exec("ALTER TABLE branches ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER is_active"); } catch (Throwable $e) {}
-  try { db()->exec("ALTER TABLE branches ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at"); } catch (Throwable $e) {}
-  try { db()->exec("CREATE UNIQUE INDEX uq_branch_code ON branches (code)"); } catch (Throwable $e) {}
+  try {
+    if (!inventory_column_exists('branches', 'code')) {
+      db()->exec("ALTER TABLE branches ADD COLUMN code VARCHAR(50) NULL AFTER id");
+    }
+    if (!inventory_column_exists('branches', 'address')) {
+      db()->exec("ALTER TABLE branches ADD COLUMN address TEXT NULL AFTER name");
+    }
+    if (!inventory_column_exists('branches', 'branch_type')) {
+      db()->exec("ALTER TABLE branches ADD COLUMN branch_type ENUM('toko','dapur') NOT NULL DEFAULT 'toko' AFTER address");
+    }
+    if (!inventory_column_exists('branches', 'is_active')) {
+      db()->exec("ALTER TABLE branches ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER branch_type");
+    }
+    if (!inventory_column_exists('branches', 'created_at')) {
+      db()->exec("ALTER TABLE branches ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER is_active");
+    }
+    if (!inventory_column_exists('branches', 'updated_at')) {
+      db()->exec("ALTER TABLE branches ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at");
+    }
+    db()->exec("CREATE UNIQUE INDEX uq_branch_code ON branches (code)");
+  } catch (Throwable $e) {
+    // Safety net only.
+  }
 
   try {
-    $stmt = db()->query("SHOW COLUMNS FROM users LIKE 'branch_id'");
-    if (!(bool)$stmt->fetch()) {
+    if (!inventory_column_exists('users', 'branch_id')) {
       db()->exec("ALTER TABLE users ADD COLUMN branch_id INT NULL AFTER role");
       db()->exec("CREATE INDEX idx_users_branch_id ON users (branch_id)");
     }
@@ -70,10 +127,14 @@ function inventory_ensure_tables(): void {
     // Diamkan agar halaman tidak gagal total.
   }
 
-  try {
-    db()->exec("ALTER TABLE users ADD CONSTRAINT fk_users_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE SET NULL");
-  } catch (Throwable $e) {
-    // Sudah ada FK / gagal aman.
+  if (inventory_column_exists('users', 'branch_id')) {
+    try {
+      if (!inventory_constraint_exists('users', 'fk_users_branch')) {
+        db()->exec("ALTER TABLE users ADD CONSTRAINT fk_users_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE SET NULL");
+      }
+    } catch (Throwable $e) {
+      // Sudah ada FK / gagal aman.
+    }
   }
 
   db()->exec("CREATE TABLE IF NOT EXISTS inv_products (
@@ -93,8 +154,7 @@ function inventory_ensure_tables(): void {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
   try {
-    $stmt = db()->query("SHOW COLUMNS FROM inv_products LIKE 'image_path'");
-    if (!(bool)$stmt->fetch()) {
+    if (!inventory_column_exists('inv_products', 'image_path')) {
       db()->exec("ALTER TABLE inv_products ADD COLUMN image_path VARCHAR(255) NULL AFTER sell_price");
     }
   } catch (Throwable $e) {
@@ -102,8 +162,7 @@ function inventory_ensure_tables(): void {
   }
 
   try {
-    $stmt = db()->query("SHOW COLUMNS FROM inv_products LIKE 'audience'");
-    if (!(bool)$stmt->fetch()) {
+    if (!inventory_column_exists('inv_products', 'audience')) {
       db()->exec("ALTER TABLE inv_products ADD COLUMN audience ENUM('toko','dapur') NOT NULL DEFAULT 'toko' AFTER type");
     }
   } catch (Throwable $e) {
@@ -111,8 +170,7 @@ function inventory_ensure_tables(): void {
   }
 
   try {
-    $stmt = db()->query("SHOW COLUMNS FROM inv_products LIKE 'kitchen_group'");
-    if (!(bool)$stmt->fetch()) {
+    if (!inventory_column_exists('inv_products', 'kitchen_group')) {
       db()->exec("ALTER TABLE inv_products ADD COLUMN kitchen_group ENUM('raw','finished') NULL AFTER audience");
     }
   } catch (Throwable $e) {
@@ -242,10 +300,22 @@ function inventory_ensure_tables(): void {
     CONSTRAINT fk_inv_kitchen_transfer_items_product FOREIGN KEY (product_id) REFERENCES inv_products(id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
-  try { db()->exec("ALTER TABLE inv_stock_ledger ADD COLUMN branch_id INT NULL AFTER id"); } catch (Throwable $e) {}
-  try { db()->exec("ALTER TABLE inv_stock_opname ADD COLUMN branch_id INT NULL AFTER id"); } catch (Throwable $e) {}
-  try { db()->exec("ALTER TABLE inv_opening_stock ADD COLUMN branch_id INT NULL AFTER id"); } catch (Throwable $e) {}
-  try { db()->exec("ALTER TABLE inv_purchases ADD COLUMN branch_id INT NULL AFTER id"); } catch (Throwable $e) {}
+  try {
+    if (!inventory_column_exists('inv_stock_ledger', 'branch_id')) {
+      db()->exec("ALTER TABLE inv_stock_ledger ADD COLUMN branch_id INT NULL AFTER id");
+    }
+    if (!inventory_column_exists('inv_stock_opname', 'branch_id')) {
+      db()->exec("ALTER TABLE inv_stock_opname ADD COLUMN branch_id INT NULL AFTER id");
+    }
+    if (!inventory_column_exists('inv_opening_stock', 'branch_id')) {
+      db()->exec("ALTER TABLE inv_opening_stock ADD COLUMN branch_id INT NULL AFTER id");
+    }
+    if (!inventory_column_exists('inv_purchases', 'branch_id')) {
+      db()->exec("ALTER TABLE inv_purchases ADD COLUMN branch_id INT NULL AFTER id");
+    }
+  } catch (Throwable $e) {
+    // Safety net only.
+  }
 }
 
 
@@ -256,8 +326,7 @@ function ensure_products_hidden_column(): void {
   $ensured = true;
 
   try {
-    $stmt = db()->query("SHOW COLUMNS FROM products LIKE 'is_hidden'");
-    if (!(bool)$stmt->fetch()) {
+    if (!inventory_column_exists('products', 'is_hidden')) {
       db()->exec("ALTER TABLE products ADD COLUMN is_hidden TINYINT(1) NOT NULL DEFAULT 0 AFTER is_best_seller");
     }
   } catch (Throwable $e) {
@@ -271,8 +340,7 @@ function ensure_products_inventory_ref_column(): void {
   $ensured = true;
 
   try {
-    $stmt = db()->query("SHOW COLUMNS FROM products LIKE 'inventory_product_id'");
-    if (!(bool)$stmt->fetch()) {
+    if (!inventory_column_exists('products', 'inventory_product_id')) {
       db()->exec("ALTER TABLE products ADD COLUMN inventory_product_id INT NULL AFTER image_path");
       db()->exec("CREATE UNIQUE INDEX uq_products_inventory_product ON products (inventory_product_id)");
     }
@@ -401,6 +469,7 @@ function inventory_active_branch(): ?array {
 }
 
 function inventory_handle_branch_context_post(): void {
+  start_secure_session();
   if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     return;
   }
@@ -411,7 +480,7 @@ function inventory_handle_branch_context_post(): void {
   $u = current_user();
   $role = (string)($u['role'] ?? '');
   if (!in_array($role, ['owner', 'admin'], true)) {
-    redirect($_SERVER['REQUEST_URI'] ?? base_url('admin/dashboard.php'));
+    redirect(base_url('admin/dashboard.php'));
   }
   $branchId = (int)($_POST['branch_id'] ?? 0);
   $stmt = db()->prepare("SELECT id FROM branches WHERE id=? AND is_active=1 LIMIT 1");
