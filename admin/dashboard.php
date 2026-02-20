@@ -9,6 +9,7 @@ date_default_timezone_set('Asia/Jakarta');
 
 start_secure_session();
 require_login();
+ensure_sales_user_column();
 
 $appName = app_config()['app']['name'];
 $storeName = setting('store_name', $appName);
