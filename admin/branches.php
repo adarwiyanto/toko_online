@@ -5,6 +5,7 @@ require_once __DIR__ . '/../core/csrf.php';
 start_secure_session();
 require_role(['owner', 'admin']);
 inventory_ensure_tables();
+$me = current_user();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
@@ -33,6 +34,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (Throwable $e) {
       inventory_log_error('Toggle status cabang gagal', $e);
       inventory_set_flash('error', inventory_user_friendly_db_error($e));
+    }
+    redirect(base_url('admin/branches.php'));
+  }
+
+  if ($action === 'delete') {
+    if (($me['role'] ?? '') !== 'owner') {
+      inventory_set_flash('error', 'Hanya owner yang dapat menghapus cabang.');
+      redirect(base_url('admin/branches.php'));
+    }
+
+    $id = (int)($_POST['id'] ?? 0);
+    if ($id <= 0) {
+      inventory_set_flash('error', 'Data cabang tidak valid.');
+      redirect(base_url('admin/branches.php'));
+    }
+
+    try {
+      $stmt = db()->prepare("DELETE FROM branches WHERE id=?");
+      $stmt->execute([$id]);
+      if ($stmt->rowCount() > 0) {
+        inventory_set_flash('ok', 'Cabang berhasil dihapus.');
+      } else {
+        inventory_set_flash('error', 'Cabang tidak ditemukan.');
+      }
+    } catch (Throwable $e) {
+      inventory_log_error('Hapus cabang gagal', $e);
+      inventory_set_flash('error', 'Cabang tidak bisa dihapus karena masih dipakai pada data lain.');
     }
     redirect(base_url('admin/branches.php'));
   }
@@ -142,6 +170,9 @@ $flash = inventory_get_flash();
                 <td style="white-space:nowrap">
                   <button class="btn" type="submit" name="action" value="update">Edit</button>
                   <button class="btn" type="submit" name="action" value="toggle" formnovalidate style="margin-left:6px"><?php echo (int)($b['is_active'] ?? 1) === 1 ? 'Nonaktifkan' : 'Aktifkan'; ?></button>
+                  <?php if (($me['role'] ?? '') === 'owner'): ?>
+                    <button class="btn" type="submit" name="action" value="delete" formnovalidate style="margin-left:6px" onclick="return confirm('Hapus cabang ini? Data terkait yang masih dipakai akan menolak penghapusan.');">Hapus</button>
+                  <?php endif; ?>
                 </td>
               </form>
             </tr>
