@@ -16,9 +16,15 @@ ensure_products_inventory_ref_column();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = (string)($_POST['action'] ?? '');
+  $me = current_user();
+  $canDelete = (($me['role'] ?? '') === 'owner');
 
   if ($action === 'delete') {
     csrf_check();
+    if (!$canDelete) {
+      $_SESSION['flash_error'] = 'Hanya owner yang dapat menghapus produk.';
+      redirect(base_url('admin/products.php'));
+    }
     $id = (int)($_POST['id'] ?? 0);
 
     $stmt = db()->prepare("SELECT image_path FROM products WHERE id=?");
@@ -52,6 +58,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $products = db()->query("SELECT * FROM products ORDER BY id DESC")->fetchAll();
 $customCss = setting('custom_css', '');
+$me = current_user();
+$canDelete = (($me['role'] ?? '') === 'owner');
 ?>
 <!doctype html>
 <html>
@@ -105,12 +113,16 @@ $customCss = setting('custom_css', '');
                     <input type="hidden" name="hide" value="<?php echo !empty($p['is_hidden']) ? '0' : '1'; ?>">
                     <button class="btn" type="submit"><?php echo !empty($p['is_hidden']) ? 'Unhide POS' : 'Hide POS'; ?></button>
                   </form>
+                  <?php if ($canDelete): ?>
                   <form method="post" data-confirm="Hapus produk ini?">
                     <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
                     <input type="hidden" name="action" value="delete">
                     <input type="hidden" name="id" value="<?php echo e((string)$p['id']); ?>">
                     <button class="btn danger" type="submit">Hapus</button>
                   </form>
+                  <?php else: ?>
+                    <span style="font-size:12px;color:var(--muted)">Hapus hanya owner</span>
+                  <?php endif; ?>
                 </td>
               </tr>
             <?php endforeach; ?>

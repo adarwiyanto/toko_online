@@ -4,6 +4,7 @@ require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/attendance.php';
+require_once __DIR__ . '/inventory_helpers.php';
 
 start_secure_session();
 require_schedule_or_attendance_admin();
@@ -18,6 +19,8 @@ $month = max(1, min(12, (int)($_GET['month'] ?? date('n'))));
 $year = max(2000, min(2100, (int)($_GET['year'] ?? date('Y'))));
 $isExport = (($_GET['export'] ?? '') === 'csv');
 
+$branchId = inventory_active_branch_id();
+$activeBranch = inventory_active_branch();
 
 $me = current_user();
 $currentRole = (string)($me['role'] ?? '');
@@ -36,8 +39,15 @@ if ($currentRole === 'manager_toko') {
 }
 
 $placeholders = implode(',', array_fill(0, count($employeeRoleFilter), '?'));
-$stmtEmployees = db()->prepare("SELECT id,name,role FROM users WHERE role IN ($placeholders) ORDER BY name");
-$stmtEmployees->execute($employeeRoleFilter);
+$employeeSql = "SELECT id,name,role FROM users WHERE role IN ($placeholders)";
+$employeeParams = $employeeRoleFilter;
+if ($branchId > 0 && in_array($currentRole, ['owner', 'admin'], true)) {
+  $employeeSql .= " AND branch_id=?";
+  $employeeParams[] = $branchId;
+}
+$employeeSql .= " ORDER BY name";
+$stmtEmployees = db()->prepare($employeeSql);
+$stmtEmployees->execute($employeeParams);
 $employees = $stmtEmployees->fetchAll();
 $employeeIds = array_map(static fn($r) => (int) $r['id'], $employees);
 $rows = [];
