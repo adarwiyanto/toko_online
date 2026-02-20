@@ -51,9 +51,8 @@ if (in_array($role, ['owner', 'admin'], true)) {
   <div class="card" style="margin:10px;padding:10px">
     <div style="font-size:12px;opacity:.8;margin-bottom:6px">Cabang Aktif</div>
     <?php if (in_array($role, ['owner', 'admin'], true)): ?>
-      <form method="post">
-        <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
-        <input type="hidden" name="action" value="set_branch_context">
+      <form method="get">
+        <input type="hidden" name="set_branch_context" value="1">
         <select name="branch_id" onchange="this.form.submit()" style="width:100%">
           <?php foreach ($branchOptions as $bo): ?>
             <option value="<?php echo e((string)$bo['id']); ?>" <?php echo (int)$bo['id'] === $activeBranchId ? 'selected' : ''; ?>>
@@ -125,7 +124,7 @@ if (in_array($role, ['owner', 'admin'], true)) {
           <a href="<?php echo e(base_url('admin/pengumuman.php')); ?>">Pengumuman Perusahaan</a>
           <a href="<?php echo e(base_url('admin/kinerja_dapur.php')); ?>">Kinerja Dapur</a>
           <a href="<?php echo e(base_url('admin/kpi_dapur_rekap.php')); ?>">Rekapan KPI pegawai dapur</a>
-          <?php if (($u['role'] ?? '') === 'owner'): ?><a href="<?php echo e(base_url('admin/backup.php')); ?>">Backup Database</a><?php endif; ?>
+          <?php if (($u['role'] ?? '') === 'owner'): ?><a href="<?php echo e(base_url('admin/value_cleanup.php')); ?>">Reset Data Nilai</a><a href="<?php echo e(base_url('admin/backup.php')); ?>">Backup Database</a><?php endif; ?>
         </div>
       </div>
       <?php endif; ?>

@@ -5,6 +5,7 @@ require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../lib/upload_secure.php';
+require_once __DIR__ . '/inventory_helpers.php';
 
 start_secure_session();
 require_admin();
@@ -13,6 +14,12 @@ ensure_sales_user_column();
 
 $err = '';
 $me = current_user();
+
+$branchFilter = inventory_sales_branch_filter('s', 'u');
+$branchFilterSql = $branchFilter['sql'];
+$branchFilterParams = $branchFilter['params'];
+$activeBranch = inventory_active_branch();
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $action = $_POST['action'] ?? 'create';
@@ -41,8 +48,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
           }
         }
-        $stmt = db()->prepare("DELETE FROM sales WHERE transaction_code=?");
-        $stmt->execute([$transactionCode]);
+        $stmt = db()->prepare("DELETE s FROM sales s LEFT JOIN users u ON u.id=s.created_by WHERE s.transaction_code=?{$branchFilterSql}");
+        $stmt->execute(array_merge([$transactionCode], $branchFilterParams));
       } else {
         if ($legacySaleId <= 0) throw new Exception('Transaksi tidak ditemukan.');
         $stmt = db()->prepare("SELECT payment_proof_path FROM sales WHERE id=?");
@@ -59,8 +66,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             upload_secure_delete($sale['payment_proof_path'], 'image');
           }
         }
-        $stmt = db()->prepare("DELETE FROM sales WHERE id=?");
-        $stmt->execute([$legacySaleId]);
+        $stmt = db()->prepare("DELETE s FROM sales s LEFT JOIN users u ON u.id=s.created_by WHERE s.id=?{$branchFilterSql}");
+        $stmt->execute(array_merge([$legacySaleId], $branchFilterParams));
       }
       redirect(base_url('admin/sales.php'));
     }
@@ -72,12 +79,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $reason = trim($_POST['return_reason'] ?? '');
       if ($reason === '') throw new Exception('Alasan retur wajib diisi.');
       if ($transactionCode !== '' && strpos($transactionCode, 'LEGACY-') !== 0) {
-        $stmt = db()->prepare("UPDATE sales SET return_reason=?, returned_at=NOW() WHERE transaction_code=?");
-        $stmt->execute([$reason, $transactionCode]);
+        $stmt = db()->prepare("UPDATE sales s LEFT JOIN users u ON u.id=s.created_by SET s.return_reason=?, s.returned_at=NOW() WHERE s.transaction_code=?{$branchFilterSql}");
+        $stmt->execute(array_merge([$reason, $transactionCode], $branchFilterParams));
       } else {
         if ($legacySaleId <= 0) throw new Exception('Transaksi tidak ditemukan.');
-        $stmt = db()->prepare("UPDATE sales SET return_reason=?, returned_at=NOW() WHERE id=?");
-        $stmt->execute([$reason, $legacySaleId]);
+        $stmt = db()->prepare("UPDATE sales s LEFT JOIN users u ON u.id=s.created_by SET s.return_reason=?, s.returned_at=NOW() WHERE s.id=?{$branchFilterSql}");
+        $stmt->execute(array_merge([$reason, $legacySaleId], $branchFilterParams));
       }
       redirect(base_url('admin/sales.php'));
     }
@@ -147,10 +154,10 @@ if ($range === 'today') {
   }
 }
 
-$whereClause = '';
-$params = [];
+$whereClause = 'WHERE 1=1' . $branchFilterSql;
+$params = $branchFilterParams;
 if ($startDate && $endDate) {
-  $whereClause = "WHERE s.sold_at BETWEEN ? AND ?";
+  $whereClause .= " AND s.sold_at BETWEEN ? AND ?";
   $params[] = $startDate->format('Y-m-d H:i:s');
   $params[] = $endDate->format('Y-m-d H:i:s');
 }

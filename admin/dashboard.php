@@ -3,6 +3,7 @@ require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
+require_once __DIR__ . '/inventory_helpers.php';
 
 date_default_timezone_set('Asia/Jakarta');
 
@@ -25,6 +26,12 @@ if ($role !== 'admin' && $role !== 'owner') {
   http_response_code(403);
   exit('Forbidden');
 }
+
+
+$branchFilter = inventory_sales_branch_filter('s', 'u');
+$branchFilterSql = $branchFilter['sql'];
+$branchFilterParams = $branchFilter['params'];
+$activeBranch = inventory_active_branch();
 
 if ($role === 'admin') {
   ensure_employee_attendance_tables();
@@ -98,54 +105,60 @@ $stats = [
 ];
 
 $stmt = db()->prepare("
-  SELECT COUNT(*) c, COALESCE(SUM(total),0) s
-  FROM sales
-  WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL
+  SELECT COUNT(*) c, COALESCE(SUM(s.total),0) s
+  FROM sales s
+  LEFT JOIN users u ON u.id = s.created_by
+  WHERE s.sold_at >= ? AND s.sold_at < ? AND s.return_reason IS NULL{$branchFilterSql}
 ");
-$stmt->execute([$rangeStartStr, $rangeEndStr]);
+$stmt->execute(array_merge([$rangeStartStr, $rangeEndStr], $branchFilterParams));
 $statsRange = $stmt->fetch();
 $stats['sales'] = (int)($statsRange['c'] ?? 0);
 $stats['revenue'] = (float)($statsRange['s'] ?? 0);
 
 $stmt = db()->prepare("
-  SELECT COUNT(DISTINCT COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id))) c,
-         COALESCE(SUM(total),0) s
-  FROM sales
-  WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL
+  SELECT COUNT(DISTINCT COALESCE(NULLIF(s.transaction_code, ''), CONCAT('LEGACY-', s.id))) c,
+         COALESCE(SUM(s.total),0) s
+  FROM sales s
+  LEFT JOIN users u ON u.id = s.created_by
+  WHERE s.sold_at >= ? AND s.sold_at < ? AND s.return_reason IS NULL{$branchFilterSql}
 ");
-$stmt->execute([$rangeStartStr, $rangeEndStr]);
+$stmt->execute(array_merge([$rangeStartStr, $rangeEndStr], $branchFilterParams));
 $avgRow = $stmt->fetch();
 $txCount = (int)($avgRow['c'] ?? 0);
 $stats['avg_transaction'] = $txCount > 0 ? ((float)$avgRow['s'] / $txCount) : 0.0;
 
 $stmt = db()->prepare("
   SELECT COUNT(*) c
-  FROM sales
-  WHERE COALESCE(returned_at, sold_at) >= ?
-    AND COALESCE(returned_at, sold_at) < ?
-    AND return_reason IS NOT NULL
+  FROM sales s
+  LEFT JOIN users u ON u.id = s.created_by
+  WHERE COALESCE(s.returned_at, s.sold_at) >= ?
+    AND COALESCE(s.returned_at, s.sold_at) < ?
+    AND s.return_reason IS NOT NULL{$branchFilterSql}
 ");
-$stmt->execute([$rangeStartStr, $rangeEndStr]);
+$stmt->execute(array_merge([$rangeStartStr, $rangeEndStr], $branchFilterParams));
 $stats['returns'] = (int)($stmt->fetch()['c'] ?? 0);
 
 $stmt = db()->prepare("
-  SELECT payment_method, COUNT(*) c, COALESCE(SUM(total),0) s
-  FROM sales
-  WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL
-  GROUP BY payment_method
-  ORDER BY s DESC
+  SELECT s.payment_method, COUNT(*) c, COALESCE(SUM(s.total),0) total_sum
+  FROM sales s
+  LEFT JOIN users u ON u.id = s.created_by
+  WHERE s.sold_at >= ? AND s.sold_at < ? AND s.return_reason IS NULL{$branchFilterSql}
+  GROUP BY s.payment_method
+  ORDER BY total_sum DESC
 ");
-$stmt->execute([$rangeStartStr, $rangeEndStr]);
+$stmt->execute(array_merge([$rangeStartStr, $rangeEndStr], $branchFilterParams));
 $paymentBreakdown = $stmt->fetchAll();
 
 $stmt = db()->prepare("
   SELECT s.*, p.name product_name
   FROM sales s
   JOIN products p ON p.id = s.product_id
+  LEFT JOIN users u ON u.id = s.created_by
+  WHERE 1=1{$branchFilterSql}
   ORDER BY s.sold_at DESC
   LIMIT 10
 ");
-$stmt->execute();
+$stmt->execute($branchFilterParams);
 $recentActivity = $stmt->fetchAll();
 
 $adminStats = [];
@@ -207,14 +220,16 @@ $peakDays = 1;
 $peakParams = [];
 $peakWhere = '';
 if ($peakRange === 'all_time') {
-  $row = db()->query("SELECT MIN(sold_at) AS min_date, MAX(sold_at) AS max_date FROM sales WHERE return_reason IS NULL")->fetch();
+  $stmtPeakRange = db()->prepare("SELECT MIN(s.sold_at) AS min_date, MAX(s.sold_at) AS max_date FROM sales s LEFT JOIN users u ON u.id = s.created_by WHERE s.return_reason IS NULL{$branchFilterSql}");
+  $stmtPeakRange->execute($branchFilterParams);
+  $row = $stmtPeakRange->fetch();
   if (!empty($row['min_date']) && !empty($row['max_date'])) {
     $peakStart = new DateTimeImmutable($row['min_date']);
     $peakEnd = (new DateTimeImmutable($row['max_date']))->modify('+1 day');
   }
 }
 if ($peakStart && $peakEnd) {
-  $peakWhere = "AND sold_at >= ? AND sold_at < ?";
+  $peakWhere = "AND s.sold_at >= ? AND s.sold_at < ?";
   $peakParams[] = $peakStart->format('Y-m-d H:i:s');
   $peakParams[] = $peakEnd->format('Y-m-d H:i:s');
   $peakDays = max(1, (int)$peakEnd->diff($peakStart)->days);
@@ -224,17 +239,18 @@ $hourlyCounts = array_fill(0, 24, 0);
 $stmt = db()->prepare("
   SELECT HOUR(tx_time) h, COUNT(*) c
   FROM (
-    SELECT COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id)) AS tx_code,
-           MIN(sold_at) AS tx_time
-    FROM sales
-    WHERE return_reason IS NULL
+    SELECT COALESCE(NULLIF(s.transaction_code, ''), CONCAT('LEGACY-', s.id)) AS tx_code,
+           MIN(s.sold_at) AS tx_time
+    FROM sales s
+    LEFT JOIN users u ON u.id = s.created_by
+    WHERE s.return_reason IS NULL{$branchFilterSql}
     {$peakWhere}
-    GROUP BY COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id))
+    GROUP BY COALESCE(NULLIF(s.transaction_code, ''), CONCAT('LEGACY-', s.id))
   ) t
   GROUP BY HOUR(tx_time)
   ORDER BY h ASC
 ");
-$stmt->execute($peakParams);
+$stmt->execute(array_merge($branchFilterParams, $peakParams));
 foreach ($stmt->fetchAll() as $row) {
   $hour = (int)($row['h'] ?? 0);
   if ($hour >= 0 && $hour <= 23) {
@@ -254,33 +270,36 @@ foreach ($hourlyCounts as $hour => $count) {
 
 if ($role === 'admin') {
   $stmt = db()->prepare("
-    SELECT COUNT(*) c, COALESCE(SUM(total),0) s
-    FROM sales
-    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL
+    SELECT COUNT(*) c, COALESCE(SUM(s.total),0) s
+    FROM sales s
+    LEFT JOIN users u ON u.id = s.created_by
+    WHERE s.sold_at >= ? AND s.sold_at < ? AND s.return_reason IS NULL{$branchFilterSql}
   ");
-  $stmt->execute([$todayStartStr, $todayEndStr]);
+  $stmt->execute(array_merge([$todayStartStr, $todayEndStr], $branchFilterParams));
   $row = $stmt->fetch();
 
   $stmt = db()->prepare("
     SELECT COUNT(*) c
-    FROM sales
-    WHERE COALESCE(returned_at, sold_at) >= ?
-      AND COALESCE(returned_at, sold_at) < ?
-      AND return_reason IS NOT NULL
+    FROM sales s
+    LEFT JOIN users u ON u.id = s.created_by
+    WHERE COALESCE(s.returned_at, s.sold_at) >= ?
+      AND COALESCE(s.returned_at, s.sold_at) < ?
+      AND s.return_reason IS NOT NULL{$branchFilterSql}
   ");
-  $stmt->execute([$todayStartStr, $todayEndStr]);
+  $stmt->execute(array_merge([$todayStartStr, $todayEndStr], $branchFilterParams));
   $returnsToday = (int)($stmt->fetch()['c'] ?? 0);
 
   $stmt = db()->prepare("
     SELECT COUNT(*) c
-    FROM sales
-    WHERE sold_at >= ?
-      AND sold_at < ?
-      AND return_reason IS NULL
-      AND payment_method != 'cash'
-      AND payment_proof_path IS NULL
+    FROM sales s
+    LEFT JOIN users u ON u.id = s.created_by
+    WHERE s.sold_at >= ?
+      AND s.sold_at < ?
+      AND s.return_reason IS NULL{$branchFilterSql}
+      AND s.payment_method != 'cash'
+      AND s.payment_proof_path IS NULL
   ");
-  $stmt->execute([$rangeStartStr, $rangeEndStr]);
+  $stmt->execute(array_merge([$rangeStartStr, $rangeEndStr], $branchFilterParams));
   $attention = (int)($stmt->fetch()['c'] ?? 0);
 
   $adminStats = [
@@ -294,11 +313,12 @@ if ($role === 'admin') {
     SELECT s.*, p.name product_name
     FROM sales s
     JOIN products p ON p.id = s.product_id
-    WHERE s.return_reason IS NOT NULL
+    LEFT JOIN users u ON u.id = s.created_by
+    WHERE s.return_reason IS NOT NULL{$branchFilterSql}
     ORDER BY COALESCE(s.returned_at, s.sold_at) DESC
     LIMIT 5
   ");
-  $stmt->execute();
+  $stmt->execute($branchFilterParams);
   $recentReturns = $stmt->fetchAll();
 }
 
@@ -314,37 +334,40 @@ if ($role === 'owner') {
   $lastMonthEndStr = $lastMonthEnd->format('Y-m-d H:i:s');
 
   $stmt = db()->prepare("
-    SELECT COUNT(*) c, COALESCE(SUM(total),0) s
-    FROM sales
-    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL
+    SELECT COUNT(*) c, COALESCE(SUM(s.total),0) s
+    FROM sales s
+    LEFT JOIN users u ON u.id = s.created_by
+    WHERE s.sold_at >= ? AND s.sold_at < ? AND s.return_reason IS NULL{$branchFilterSql}
   ");
-  $stmt->execute([$todayStartStr, $todayEndStr]);
+  $stmt->execute(array_merge([$todayStartStr, $todayEndStr], $branchFilterParams));
   $todayRow = $stmt->fetch();
 
-  $stmt->execute([$monthStartStr, $monthEndStr]);
+  $stmt->execute(array_merge([$monthStartStr, $monthEndStr], $branchFilterParams));
   $monthRow = $stmt->fetch();
 
-  $stmt->execute([$lastMonthStartStr, $lastMonthEndStr]);
+  $stmt->execute(array_merge([$lastMonthStartStr, $lastMonthEndStr], $branchFilterParams));
   $lastMonthRow = $stmt->fetch();
 
   $stmt = db()->prepare("
     SELECT COUNT(*) c
-    FROM sales
-    WHERE COALESCE(returned_at, sold_at) >= ?
-      AND COALESCE(returned_at, sold_at) < ?
-      AND return_reason IS NOT NULL
+    FROM sales s
+    LEFT JOIN users u ON u.id = s.created_by
+    WHERE COALESCE(s.returned_at, s.sold_at) >= ?
+      AND COALESCE(s.returned_at, s.sold_at) < ?
+      AND s.return_reason IS NOT NULL{$branchFilterSql}
   ");
-  $stmt->execute([$monthStartStr, $monthEndStr]);
+  $stmt->execute(array_merge([$monthStartStr, $monthEndStr], $branchFilterParams));
   $returnsMonth = (int)($stmt->fetch()['c'] ?? 0);
 
   $stmt = db()->prepare("
-    SELECT payment_method, COUNT(*) c, COALESCE(SUM(total),0) s
-    FROM sales
-    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL
-    GROUP BY payment_method
-    ORDER BY s DESC
+    SELECT s.payment_method, COUNT(*) c, COALESCE(SUM(s.total),0) total_sum
+    FROM sales s
+    LEFT JOIN users u ON u.id = s.created_by
+    WHERE s.sold_at >= ? AND s.sold_at < ? AND s.return_reason IS NULL{$branchFilterSql}
+    GROUP BY s.payment_method
+    ORDER BY total_sum DESC
   ");
-  $stmt->execute([$monthStartStr, $monthEndStr]);
+  $stmt->execute(array_merge([$monthStartStr, $monthEndStr], $branchFilterParams));
   $sharePaymentsMonth = $stmt->fetchAll();
 
   $superStats = [
@@ -361,13 +384,14 @@ if ($role === 'owner') {
   $trendEndStr = $todayEndStr;
 
   $stmt = db()->prepare("
-    SELECT DATE(sold_at) d, COALESCE(SUM(total),0) s
-    FROM sales
-    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL
-    GROUP BY DATE(sold_at)
+    SELECT DATE(s.sold_at) d, COALESCE(SUM(s.total),0) s
+    FROM sales s
+    LEFT JOIN users u ON u.id = s.created_by
+    WHERE s.sold_at >= ? AND s.sold_at < ? AND s.return_reason IS NULL{$branchFilterSql}
+    GROUP BY DATE(s.sold_at)
     ORDER BY d ASC
   ");
-  $stmt->execute([$trendStartStr, $trendEndStr]);
+  $stmt->execute(array_merge([$trendStartStr, $trendEndStr], $branchFilterParams));
   $trendRowsRaw = $stmt->fetchAll();
   $trendMap = [];
   foreach ($trendRowsRaw as $row) {
@@ -387,12 +411,13 @@ if ($role === 'owner') {
     SELECT p.name, SUM(s.qty) qty, COALESCE(SUM(s.total),0) omzet
     FROM sales s
     JOIN products p ON p.id = s.product_id
-    WHERE s.sold_at >= ? AND s.sold_at < ? AND s.return_reason IS NULL
+    LEFT JOIN users u ON u.id = s.created_by
+    WHERE s.sold_at >= ? AND s.sold_at < ? AND s.return_reason IS NULL{$branchFilterSql}
     GROUP BY s.product_id
     ORDER BY qty DESC
     LIMIT 5
   ");
-  $stmt->execute([$monthStartStr, $monthEndStr]);
+  $stmt->execute(array_merge([$monthStartStr, $monthEndStr], $branchFilterParams));
   $topProducts = $stmt->fetchAll();
 
   $last30Start = $today->modify('-30 days');

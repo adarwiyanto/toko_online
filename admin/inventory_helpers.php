@@ -442,6 +442,14 @@ function inventory_active_branch_id(): int {
   }
   $role = (string)($u['role'] ?? '');
   if (in_array($role, ['owner', 'admin'], true)) {
+    if (isset($_GET['set_branch_context']) && isset($_GET['branch_id'])) {
+      $branchId = (int)($_GET['branch_id'] ?? 0);
+      $stmt = db()->prepare("SELECT id FROM branches WHERE id=? AND is_active=1 LIMIT 1");
+      $stmt->execute([$branchId]);
+      if ($stmt->fetch()) {
+        $_SESSION['inventory_branch_id'] = $branchId;
+      }
+    }
     $sessionBranch = (int)($_SESSION['inventory_branch_id'] ?? 0);
     if ($sessionBranch > 0) {
       return $sessionBranch;
@@ -493,6 +501,17 @@ function inventory_handle_branch_context_post(): void {
 
 function inventory_branch_options(): array {
   return db()->query("SELECT id, name, branch_type FROM branches WHERE is_active=1 ORDER BY name ASC")->fetchAll();
+}
+
+function inventory_sales_branch_filter(string $salesAlias = 's', string $userAlias = 'u'): array {
+  $branchId = inventory_active_branch_id();
+  if ($branchId <= 0) {
+    return ['sql' => '', 'params' => []];
+  }
+  return [
+    'sql' => " AND COALESCE({$userAlias}.branch_id, 0) = ?",
+    'params' => [$branchId],
+  ];
 }
 
 function inventory_set_flash(string $type, string $message): void {
