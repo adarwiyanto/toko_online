@@ -71,12 +71,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 
   if ($action === 'create') {
+    $db = db();
     $now = inventory_now();
     try {
-      $stmt = db()->prepare("INSERT INTO branches (code, name, address, branch_type, is_active, created_at, updated_at) VALUES (?,?,?,?,?,?,?)");
-      $stmt->execute([$code !== '' ? $code : null, $name, $address !== '' ? $address : null, $branchType, $isActive, $now, $now]);
+      $db->beginTransaction();
+
+      $lastIdStmt = $db->query("SELECT id FROM branches ORDER BY id DESC LIMIT 1 FOR UPDATE");
+      $lastId = (int)($lastIdStmt->fetchColumn() ?: 0);
+      $nextId = max(1, $lastId + 1);
+
+      $stmt = $db->prepare("INSERT INTO branches (id, code, name, address, branch_type, is_active, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)");
+      $stmt->execute([$nextId, $code !== '' ? $code : null, $name, $address !== '' ? $address : null, $branchType, $isActive, $now, $now]);
+
+      $db->commit();
       inventory_set_flash('ok', 'Cabang berhasil ditambahkan.');
     } catch (Throwable $e) {
+      if ($db->inTransaction()) {
+        $db->rollBack();
+      }
       inventory_log_error('Tambah cabang gagal', $e);
       inventory_set_flash('error', inventory_user_friendly_db_error($e));
     }
