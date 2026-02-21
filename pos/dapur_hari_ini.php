@@ -5,6 +5,7 @@ require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/attendance.php';
+require_once __DIR__ . '/../admin/inventory_helpers.php';
 
 start_secure_session();
 require_login();
@@ -47,19 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($realizationId > 0) {
         kitchen_kpi_sync_realization_approvals($realizationId, (int)$me['id']);
       }
-      $ok = 'Realisasi berhasil disimpan. Menunggu persetujuan pegawai dapur lain dan manager dapur.';
-    }
-
-    if ($action === 'approve_realization') {
-      $approvalId = (int)($_POST['approval_id'] ?? 0);
-      if ($approvalId <= 0) throw new Exception('Data persetujuan tidak valid.');
-      $stmt = db()->prepare('UPDATE kitchen_kpi_realization_approvals SET approved_at=NOW() WHERE id=? AND approver_user_id=?');
-      $stmt->execute([$approvalId, (int)$me['id']]);
-      if ($stmt->rowCount() > 0) {
-        $ok = 'Realisasi rekan Anda berhasil disetujui.';
-      } else {
-        throw new Exception('Persetujuan tidak ditemukan atau bukan jatah Anda.');
-      }
+      $ok = 'Realisasi berhasil disimpan. Menunggu persetujuan atasan.';
     }
   } catch (Throwable $e) {
     $err = $e->getMessage();
@@ -67,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $today = app_today_jakarta();
-$stmt = db()->prepare("SELECT a.id AS activity_id, a.activity_name, t.target_qty, COALESCE(r.qty,0) AS realized_qty,
+$stmt = db()->prepare("SELECT a.id AS activity_id, a.activity_name, t.target_qty, t.approved_at AS target_approved_at, COALESCE(r.qty,0) AS realized_qty,
     r.id AS realization_id,
     COUNT(ap.id) AS approver_total,
     SUM(CASE WHEN ap.approved_at IS NOT NULL THEN 1 ELSE 0 END) AS approver_approved
@@ -76,20 +65,10 @@ $stmt = db()->prepare("SELECT a.id AS activity_id, a.activity_name, t.target_qty
   LEFT JOIN kitchen_kpi_realizations r ON r.user_id=t.user_id AND r.activity_id=t.activity_id AND r.realization_date=t.target_date
   LEFT JOIN kitchen_kpi_realization_approvals ap ON ap.realization_id=r.id
   WHERE t.user_id=? AND t.target_date=?
-  GROUP BY a.id, a.activity_name, t.target_qty, r.id, r.qty
+  GROUP BY a.id, a.activity_name, t.target_qty, t.approved_at, r.id, r.qty
   ORDER BY a.activity_name ASC");
 $stmt->execute([(int)$me['id'], $today]);
 $rows = $stmt->fetchAll();
-
-$pendingApprovalsStmt = db()->prepare("SELECT ap.id, u.name, a.activity_name, r.realization_date, r.qty
-  FROM kitchen_kpi_realization_approvals ap
-  JOIN kitchen_kpi_realizations r ON r.id=ap.realization_id
-  JOIN users u ON u.id=r.user_id
-  JOIN kitchen_kpi_activities a ON a.id=r.activity_id
-  WHERE ap.approver_user_id=? AND ap.approved_at IS NULL
-  ORDER BY r.realization_date DESC, u.name ASC, a.activity_name ASC");
-$pendingApprovalsStmt->execute([(int)$me['id']]);
-$pendingApprovals = $pendingApprovalsStmt->fetchAll();
 
 $activitiesStmt = db()->query("SELECT id,activity_name FROM kitchen_kpi_activities ORDER BY activity_name ASC");
 $activities = $activitiesStmt->fetchAll();
@@ -127,60 +106,33 @@ $announcement = latest_active_announcement('dapur');
       </div>
     <?php endif; ?>
 
-    <div class="grid cols-2">
-      <div class="card">
-        <h3>Input Realisasi Sendiri</h3>
-        <form method="post">
-          <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
-          <input type="hidden" name="action" value="set_realization">
-          <div class="row"><label>Kegiatan</label><select name="activity_id"><?php foreach($activities as $a): ?><option value="<?php echo e($a['id']); ?>"><?php echo e($a['activity_name']); ?></option><?php endforeach; ?></select></div>
-          <div class="row"><label>Tanggal</label><input type="date" name="realization_date" value="<?php echo e($today); ?>"></div>
-          <div class="row"><label>Qty Realisasi</label><input type="number" min="0" name="qty" required></div>
-          <button class="btn" type="submit">Simpan Realisasi</button>
-        </form>
-      </div>
-      <div class="card">
-        <h3>Persetujuan Rekan Dapur</h3>
-        <table class="table">
-          <thead><tr><th>Tanggal</th><th>Pegawai</th><th>Kegiatan</th><th>Qty</th><th>Aksi</th></tr></thead>
-          <tbody>
-          <?php if (!$pendingApprovals): ?>
-            <tr><td colspan="5">Tidak ada realisasi yang menunggu persetujuan Anda.</td></tr>
-          <?php else: foreach($pendingApprovals as $p): ?>
-            <tr>
-              <td><?php echo e($p['realization_date']); ?></td>
-              <td><?php echo e($p['name']); ?></td>
-              <td><?php echo e($p['activity_name']); ?></td>
-              <td><?php echo e((string)$p['qty']); ?></td>
-              <td>
-                <form method="post" style="margin:0">
-                  <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
-                  <input type="hidden" name="action" value="approve_realization">
-                  <input type="hidden" name="approval_id" value="<?php echo e((string)$p['id']); ?>">
-                  <button class="btn" type="submit">Setujui</button>
-                </form>
-              </td>
-            </tr>
-          <?php endforeach; endif; ?>
-          </tbody>
-        </table>
-      </div>
+    <div class="card">
+      <h3>Input Realisasi Sendiri</h3>
+      <form method="post">
+        <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+        <input type="hidden" name="action" value="set_realization">
+        <div class="row"><label>Kegiatan</label><select name="activity_id"><?php foreach($activities as $a): ?><option value="<?php echo e($a['id']); ?>"><?php echo e($a['activity_name']); ?></option><?php endforeach; ?></select></div>
+        <div class="row"><label>Tanggal</label><input type="date" name="realization_date" value="<?php echo e($today); ?>"></div>
+        <div class="row"><label>Qty Realisasi</label><input type="number" min="0" name="qty" required></div>
+        <button class="btn" type="submit">Simpan Realisasi</button>
+      </form>
     </div>
 
     <table class="table">
-      <thead><tr><th>Kegiatan</th><th>Target</th><th>Realisasi</th><th>Status Persetujuan</th></tr></thead>
+      <thead><tr><th>Kegiatan</th><th>Status Target</th><th>Target</th><th>Realisasi</th><th>Status Persetujuan</th></tr></thead>
       <tbody>
       <?php if (!$rows): ?>
-        <tr><td colspan="4">Belum ada target KPI dapur hari ini.</td></tr>
+        <tr><td colspan="5">Belum ada target KPI dapur hari ini.</td></tr>
       <?php else: foreach ($rows as $r): $approved=(int)$r['approver_approved']; $total=(int)$r['approver_total']; ?>
         <tr>
           <td><?php echo e($r['activity_name']); ?></td>
+          <td><?php echo !empty($r['target_approved_at']) ? 'Disetujui' : 'Menunggu persetujuan'; ?></td>
           <td><?php echo e((string)$r['target_qty']); ?></td>
           <td><?php echo e((string)$r['realized_qty']); ?></td>
           <td>
             <?php if ((int)$r['realization_id'] <= 0): ?>Belum diinput<?php else: ?>
               <?php echo e((string)$approved . '/' . (string)$total); ?>
-              <?php echo ($total > 0 && $approved >= $total) ? ' (Disetujui semua)' : ' (Menunggu persetujuan)'; ?>
+              <?php echo ($approved >= 1) ? ' (Disetujui)' : ' (Menunggu persetujuan)'; ?>
             <?php endif; ?>
           </td>
         </tr>

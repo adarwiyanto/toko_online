@@ -45,7 +45,7 @@ function require_admin(): void {
       return;
     }
     if ($role === 'manager_dapur') {
-      $allowedPages = ['kinerja_dapur.php', 'kpi_dapur_rekap.php', 'users.php', 'schedule.php', 'attendance.php'];
+      $allowedPages = ['kinerja_dapur.php', 'kpi_dapur_targets.php', 'kpi_dapur_rekap.php', 'users.php', 'schedule.php', 'attendance.php'];
       $currentPage = basename((string)($_SERVER['PHP_SELF'] ?? ''));
       if (!in_array($currentPage, $allowedPages, true)) {
         $_SESSION['flash_error'] = 'Akses dibatasi untuk manager_dapur.';

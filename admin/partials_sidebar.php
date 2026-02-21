@@ -78,7 +78,8 @@ if (in_array($role, ['owner', 'admin'], true)) {
       <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='schedule.php')?'active':''; ?>" href="<?php echo e(base_url('admin/schedule.php')); ?>"><div class="mi">📅</div><div class="label">Jadwal Pegawai Dapur</div></a></div>
       <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='attendance.php')?'active':''; ?>" href="<?php echo e(base_url('admin/attendance.php')); ?>"><div class="mi">🕒</div><div class="label">Rekap Absensi Dapur</div></a></div>
       <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='kinerja_dapur.php')?'active':''; ?>" href="<?php echo e(base_url('admin/kinerja_dapur.php')); ?>"><div class="mi">🍳</div><div class="label">Kinerja Dapur</div></a></div>
-      <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='kpi_dapur_rekap.php')?'active':''; ?>" href="<?php echo e(base_url('admin/kpi_dapur_rekap.php')); ?>"><div class="mi">📊</div><div class="label">Rekapan KPI pegawai dapur</div></a></div>
+      <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='kpi_dapur_targets.php')?'active':''; ?>" href="<?php echo e(base_url('admin/kpi_dapur_targets.php')); ?>"><div class="mi">🎯</div><div class="label">KPI Dapur - Target</div></a></div>
+      <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='kpi_dapur_rekap.php')?'active':''; ?>" href="<?php echo e(base_url('admin/kpi_dapur_rekap.php')); ?>"><div class="mi">📊</div><div class="label">KPI Dapur - Rekap</div></a></div>
       <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='users.php')?'active':''; ?>" href="<?php echo e(base_url('admin/users.php')); ?>"><div class="mi">👥</div><div class="label">User</div></a></div>
     <?php else: ?>
       <div class="item"><a href="<?php echo e(base_url('index.php')); ?>" target="_blank" rel="noopener"><div class="mi">🌐</div><div class="label">Landing Page</div></a></div>
@@ -123,7 +124,8 @@ if (in_array($role, ['owner', 'admin'], true)) {
           <a href="<?php echo e(base_url('admin/work_locations.php')); ?>">Lokasi Kerja</a>
           <a href="<?php echo e(base_url('admin/pengumuman.php')); ?>">Pengumuman Perusahaan</a>
           <a href="<?php echo e(base_url('admin/kinerja_dapur.php')); ?>">Kinerja Dapur</a>
-          <a href="<?php echo e(base_url('admin/kpi_dapur_rekap.php')); ?>">Rekapan KPI pegawai dapur</a>
+          <a href="<?php echo e(base_url('admin/kpi_dapur_targets.php')); ?>">KPI Dapur - Target</a>
+          <a href="<?php echo e(base_url('admin/kpi_dapur_rekap.php')); ?>">KPI Dapur - Rekap</a>
           <?php if (($u['role'] ?? '') === 'owner'): ?><a href="<?php echo e(base_url('admin/value_cleanup.php')); ?>">Reset Data Nilai</a><a href="<?php echo e(base_url('admin/backup.php')); ?>">Backup Database</a><?php endif; ?>
         </div>
       </div>
