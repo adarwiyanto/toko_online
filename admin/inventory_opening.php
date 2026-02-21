@@ -40,15 +40,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $openingId = (int)db()->lastInsertId();
 
     $stmtItem = db()->prepare("INSERT INTO inv_opening_stock_items (opening_id, product_id, qty) VALUES (?,?,?)");
-    $stmtLedger = db()->prepare("INSERT INTO inv_stock_ledger (branch_id, product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, 'OPENING', ?, ?, 0, 'Stock awal', ?)");
+    $stmtLedger = db()->prepare("INSERT INTO inv_stock_ledger (branch_id, product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?,?,?,?,?,?,?,?)");
 
     foreach ($items as $pid => $qty) {
       $stmtItem->execute([$openingId, $pid, $qty]);
       if ($qty >= 0) {
-        $stmtLedger->execute([$branchId, $pid, $openingId, $qty, $now]);
+        $stmtLedger->execute([$branchId, $pid, 'OPENING', $openingId, $qty, 0, 'Stock awal', $now]);
       } else {
-        $stmtOut = db()->prepare("INSERT INTO inv_stock_ledger (branch_id, product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, 'OPENING', ?, 0, ?, 'Stock awal', ?)");
-        $stmtOut->execute([$branchId, $pid, $openingId, abs($qty), $now]);
+        $stmtLedger->execute([$branchId, $pid, 'OPENING', $openingId, 0, abs($qty), 'Stock awal', $now]);
       }
     }
     db()->commit();
