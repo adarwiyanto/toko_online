@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/auth.php';
+require_once __DIR__ . '/../core/csrf.php';
+require_once __DIR__ . '/inventory_helpers.php';
 
 $appName = app_config()['app']['name'];
 $u = current_user();
@@ -12,6 +14,14 @@ if (!empty($u['avatar_path'])) {
   $avatarUrl = upload_url($u['avatar_path'], 'image');
 }
 $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
+
+inventory_handle_branch_context_post();
+$activeBranch = inventory_active_branch();
+$activeBranchId = (int)($activeBranch['id'] ?? 0);
+$branchOptions = [];
+if (in_array($role, ['owner', 'admin'], true)) {
+  $branchOptions = inventory_branch_options();
+}
 ?>
 <div class="sidebar">
   <div class="sb-top">
@@ -37,6 +47,25 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
     </div>
   </div>
 
+
+  <div class="card" style="margin:10px;padding:10px">
+    <div style="font-size:12px;opacity:.8;margin-bottom:6px">Cabang Aktif</div>
+    <?php if (in_array($role, ['owner', 'admin'], true)): ?>
+      <form method="get">
+        <input type="hidden" name="set_branch_context" value="1">
+        <select name="branch_id" onchange="this.form.submit()" style="width:100%">
+          <?php foreach ($branchOptions as $bo): ?>
+            <option value="<?php echo e((string)$bo['id']); ?>" <?php echo (int)$bo['id'] === $activeBranchId ? 'selected' : ''; ?>>
+              <?php echo e((string)$bo['name']); ?> (<?php echo e((string)$bo['branch_type']); ?>)
+            </option>
+          <?php endforeach; ?>
+        </select>
+      </form>
+    <?php else: ?>
+      <div style="font-weight:600"><?php echo e((string)($activeBranch['name'] ?? '-')); ?></div>
+      <div style="font-size:12px;opacity:.8"><?php echo e((string)($activeBranch['branch_type'] ?? '-')); ?></div>
+    <?php endif; ?>
+  </div>
   <div class="nav">
     <?php if ($isManagerToko): ?>
       <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='schedule.php')?'active':''; ?>" href="<?php echo e(base_url('admin/schedule.php')); ?>"><div class="mi">📅</div><div class="label">Jadwal Pegawai</div></a></div>
@@ -49,20 +78,22 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
       <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='schedule.php')?'active':''; ?>" href="<?php echo e(base_url('admin/schedule.php')); ?>"><div class="mi">📅</div><div class="label">Jadwal Pegawai Dapur</div></a></div>
       <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='attendance.php')?'active':''; ?>" href="<?php echo e(base_url('admin/attendance.php')); ?>"><div class="mi">🕒</div><div class="label">Rekap Absensi Dapur</div></a></div>
       <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='kinerja_dapur.php')?'active':''; ?>" href="<?php echo e(base_url('admin/kinerja_dapur.php')); ?>"><div class="mi">🍳</div><div class="label">Kinerja Dapur</div></a></div>
-      <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='kpi_dapur_rekap.php')?'active':''; ?>" href="<?php echo e(base_url('admin/kpi_dapur_rekap.php')); ?>"><div class="mi">📊</div><div class="label">Rekapan KPI pegawai dapur</div></a></div>
+      <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='kpi_dapur_targets.php')?'active':''; ?>" href="<?php echo e(base_url('admin/kpi_dapur_targets.php')); ?>"><div class="mi">🎯</div><div class="label">KPI Dapur - Target</div></a></div>
+      <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='kpi_dapur_rekap.php')?'active':''; ?>" href="<?php echo e(base_url('admin/kpi_dapur_rekap.php')); ?>"><div class="mi">📊</div><div class="label">KPI Dapur - Rekap</div></a></div>
       <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='users.php')?'active':''; ?>" href="<?php echo e(base_url('admin/users.php')); ?>"><div class="mi">👥</div><div class="label">User</div></a></div>
     <?php else: ?>
       <div class="item"><a href="<?php echo e(base_url('index.php')); ?>" target="_blank" rel="noopener"><div class="mi">🌐</div><div class="label">Landing Page</div></a></div>
       <div class="item"><a class="<?php echo (basename($_SERVER['PHP_SELF'])==='dashboard.php')?'active':''; ?>" href="<?php echo e(base_url('admin/dashboard.php')); ?>"><div class="mi">🏠</div><div class="label">Dasbor</div></a></div>
 
       <div class="item">
-        <button type="button" data-toggle-submenu="#m-produk"><div class="mi">📦</div><div class="label">Produk & Inventori</div><div class="chev">▾</div></button>
+        <button type="button" data-toggle-submenu="#m-produk"><div class="mi">📦</div><div class="label">Produk & Inventory</div><div class="chev">▾</div></button>
         <div class="submenu" id="m-produk">
           <a href="<?php echo e(base_url('admin/products.php')); ?>">Produk POS</a>
           <a href="<?php echo e(base_url('admin/product_categories.php')); ?>">Kategori Produk</a>
           <?php if (in_array($u['role'] ?? '', ['owner', 'admin'], true)): ?>
             <a href="<?php echo e(base_url('admin/branches.php')); ?>">Cabang</a>
-            <a href="<?php echo e(base_url('admin/inventory_products.php')); ?>">Produk</a>
+            <a href="<?php echo e(base_url('admin/inventory_products.php')); ?>">Produk (Global)</a>
+            <a href="<?php echo e(base_url('admin/inventory_branch_prices.php')); ?>">Harga Jual Cabang</a>
             <a href="<?php echo e(base_url('admin/inventory_opening.php')); ?>">Stock Awal</a>
             <a href="<?php echo e(base_url('admin/inventory_purchases.php')); ?>">Pembelian Pihak Ketiga</a>
             <a href="<?php echo e(base_url('admin/inventory_kitchen_transfers.php')); ?>">Kirim Dapur ke Toko</a>
@@ -93,8 +124,9 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
           <a href="<?php echo e(base_url('admin/work_locations.php')); ?>">Lokasi Kerja</a>
           <a href="<?php echo e(base_url('admin/pengumuman.php')); ?>">Pengumuman Perusahaan</a>
           <a href="<?php echo e(base_url('admin/kinerja_dapur.php')); ?>">Kinerja Dapur</a>
-          <a href="<?php echo e(base_url('admin/kpi_dapur_rekap.php')); ?>">Rekapan KPI pegawai dapur</a>
-          <?php if (($u['role'] ?? '') === 'owner'): ?><a href="<?php echo e(base_url('admin/backup.php')); ?>">Backup Database</a><?php endif; ?>
+          <a href="<?php echo e(base_url('admin/kpi_dapur_targets.php')); ?>">KPI Dapur - Target</a>
+          <a href="<?php echo e(base_url('admin/kpi_dapur_rekap.php')); ?>">KPI Dapur - Rekap</a>
+          <?php if (($u['role'] ?? '') === 'owner'): ?><a href="<?php echo e(base_url('admin/value_cleanup.php')); ?>">Reset Data Nilai</a><a href="<?php echo e(base_url('admin/backup.php')); ?>">Backup Database</a><?php endif; ?>
         </div>
       </div>
       <?php endif; ?>

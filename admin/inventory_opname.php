@@ -8,6 +8,8 @@ inventory_ensure_tables();
 
 $u = current_user();
 $userId = (int)($u['id'] ?? 0);
+$branchId = inventory_active_branch_id();
+$branch = inventory_active_branch();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
@@ -19,11 +21,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     db()->beginTransaction();
     try {
-      $stmt = db()->prepare("INSERT INTO inv_stock_opname (opname_date, status, created_by, created_at) VALUES (?, 'DRAFT', ?, ?)");
-      $stmt->execute([$opnameDate, $userId, $now]);
+      $stmt = db()->prepare("INSERT INTO inv_stock_opname (branch_id, opname_date, status, created_by, created_at) VALUES (?, ?, 'DRAFT', ?, ?)");
+      $stmt->execute([$branchId, $opnameDate, $userId, $now]);
       $opnameId = (int)db()->lastInsertId();
 
-      $products = db()->query("SELECT id FROM inv_products WHERE is_deleted=0 AND is_hidden=0")->fetchAll();
+      $productSql = "SELECT id FROM inv_products WHERE is_deleted=0 AND is_hidden=0";
+      if (($branch['branch_type'] ?? '') === 'toko') {
+        $productSql .= " AND audience='toko' AND (type='FINISHED' OR kitchen_group='finished')";
+      } else {
+        $productSql .= " AND audience='dapur'";
+      }
+      $products = db()->query($productSql)->fetchAll();
       $insertItem = db()->prepare("INSERT INTO inv_stock_opname_items (opname_id, product_id, system_qty, counted_qty, diff_qty, note) VALUES (?,?,?,?,?,NULL)");
       foreach ($products as $product) {
         $pid = (int)$product['id'];
@@ -42,8 +50,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   if ($action === 'save_items') {
     $opnameId = (int)($_POST['opname_id'] ?? 0);
-    $statusStmt = db()->prepare("SELECT status FROM inv_stock_opname WHERE id=? LIMIT 1");
-    $statusStmt->execute([$opnameId]);
+    $statusStmt = db()->prepare("SELECT status FROM inv_stock_opname WHERE id=? AND branch_id=? LIMIT 1");
+    $statusStmt->execute([$opnameId, $branchId]);
     $header = $statusStmt->fetch();
     if (!$header || $header['status'] !== 'DRAFT') {
       inventory_set_flash('error', 'Dokumen sudah POSTED dan terkunci.');
@@ -80,8 +88,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $opnameId = (int)($_POST['opname_id'] ?? 0);
     db()->beginTransaction();
     try {
-      $headerStmt = db()->prepare("SELECT * FROM inv_stock_opname WHERE id=? FOR UPDATE");
-      $headerStmt->execute([$opnameId]);
+      $headerStmt = db()->prepare("SELECT * FROM inv_stock_opname WHERE id=? AND branch_id=? FOR UPDATE");
+      $headerStmt->execute([$opnameId, $branchId]);
       $header = $headerStmt->fetch();
       if (!$header || $header['status'] !== 'DRAFT') {
         throw new RuntimeException('invalid');
@@ -91,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $itemStmt->execute([$opnameId]);
       $items = $itemStmt->fetchAll();
 
-      $ledgerStmt = db()->prepare("INSERT INTO inv_stock_ledger (product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, 'OPNAME', ?, ?, ?, ?, ?)");
+      $ledgerStmt = db()->prepare("INSERT INTO inv_stock_ledger (branch_id, product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, 'OPNAME', ?, ?, ?, ?, ?)");
       $now = inventory_now();
 
       foreach ($items as $item) {
@@ -100,9 +108,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           continue;
         }
         if ($diff > 0) {
-          $ledgerStmt->execute([(int)$item['product_id'], $opnameId, $diff, 0, 'Adjustment opname', $now]);
+          $ledgerStmt->execute([$branchId, (int)$item['product_id'], $opnameId, $diff, 0, 'Adjustment opname', $now]);
         } else {
-          $ledgerStmt->execute([(int)$item['product_id'], $opnameId, 0, abs($diff), 'Adjustment opname', $now]);
+          $ledgerStmt->execute([$branchId, (int)$item['product_id'], $opnameId, 0, abs($diff), 'Adjustment opname', $now]);
         }
       }
 
@@ -126,8 +134,8 @@ if ($viewId > 0) {
     FROM inv_stock_opname o
     LEFT JOIN users u ON u.id=o.created_by
     LEFT JOIN users p ON p.id=o.posted_by
-    WHERE o.id=? LIMIT 1");
-  $stmt->execute([$viewId]);
+    WHERE o.id=? AND o.branch_id=? LIMIT 1");
+  $stmt->execute([$viewId, $branchId]);
   $viewHeader = $stmt->fetch();
 
   if ($viewHeader) {
@@ -137,7 +145,9 @@ if ($viewId > 0) {
   }
 }
 
-$list = db()->query("SELECT id, opname_date, status, created_at FROM inv_stock_opname ORDER BY id DESC LIMIT 50")->fetchAll();
+$stmtList = db()->prepare("SELECT id, opname_date, status, created_at FROM inv_stock_opname WHERE branch_id=? ORDER BY id DESC LIMIT 50");
+$stmtList->execute([$branchId]);
+$list = $stmtList->fetchAll();
 $flash = inventory_get_flash();
 $customCss = setting('custom_css', '');
 ?>
@@ -160,7 +170,7 @@ $customCss = setting('custom_css', '');
       <?php if ($flash): ?><div class="card" style="margin-bottom:12px"><?php echo e($flash['message']); ?></div><?php endif; ?>
 
       <div class="card" style="margin-bottom:14px">
-        <h3 style="margin-top:0">Buat Dokumen Opname</h3>
+        <h3 style="margin-top:0">Buat Dokumen Opname</h3><p>Cabang aktif: <strong><?php echo e((string)($branch['name'] ?? '-')); ?></strong></p>
         <form method="post" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
           <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="create">
           <div class="row" style="max-width:220px"><label>Tanggal Opname</label><input type="date" name="opname_date" value="<?php echo e(date('Y-m-d')); ?>"></div>

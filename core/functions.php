@@ -716,6 +716,19 @@ function ensure_kitchen_kpi_tables(): void {
         FOREIGN KEY (approver_user_id) REFERENCES users(id) ON DELETE CASCADE
       ) ENGINE=InnoDB
     ");
+
+    $addColumnIfMissing = static function (PDO $db, string $table, string $column, string $definition): void {
+      $stmt = $db->prepare('SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?');
+      $stmt->execute([$table, $column]);
+      if ((int)$stmt->fetchColumn() === 0) {
+        $db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
+      }
+    };
+
+    $db = db();
+    $addColumnIfMissing($db, 'kitchen_kpi_targets', 'created_by', 'INT NULL AFTER target_qty');
+    $addColumnIfMissing($db, 'kitchen_kpi_targets', 'approved_by', 'INT NULL AFTER created_by');
+    $addColumnIfMissing($db, 'kitchen_kpi_targets', 'approved_at', 'DATETIME NULL AFTER approved_by');
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.
   }
@@ -724,10 +737,25 @@ function ensure_kitchen_kpi_tables(): void {
 function kitchen_kpi_required_approver_ids(int $submitterUserId): array {
   ensure_kitchen_kpi_tables();
   $submitterUserId = max(0, $submitterUserId);
-  if ($submitterUserId <= 0) return [];
+  $branchId = 0;
+  if (function_exists('inventory_active_branch_id')) {
+    $branchId = max(0, (int)inventory_active_branch_id());
+  }
 
-  $stmt = db()->prepare("SELECT id FROM users WHERE (role='pegawai_dapur' AND id<>?) OR role='manager_dapur' ORDER BY id ASC");
-  $stmt->execute([$submitterUserId]);
+  $params = [];
+  $sql = "SELECT id FROM users WHERE role IN ('owner','admin','manager_dapur')";
+  if ($submitterUserId > 0) {
+    $sql .= ' AND id<>?';
+    $params[] = $submitterUserId;
+  }
+  if ($branchId > 0) {
+    $sql .= ' AND branch_id = ?';
+    $params[] = $branchId;
+  }
+  $sql .= ' ORDER BY id ASC';
+
+  $stmt = db()->prepare($sql);
+  $stmt->execute($params);
   $ids = array_map(static fn($v): int => (int)$v, $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
   return array_values(array_unique(array_filter($ids, static fn($id): bool => $id > 0)));
 }
