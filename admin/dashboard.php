@@ -854,6 +854,7 @@ function format_rupiah($amount)
               <a class="btn" href="<?php echo e(base_url('admin/sales.php')); ?>">Penjualan</a>
               <a class="btn" href="<?php echo e(base_url('admin/products.php')); ?>">Produk</a>
               <a class="btn" href="<?php echo e(base_url('admin/theme.php')); ?>">Tema</a>
+              <a class="btn" href="<?php echo e(base_url('pos/absen.php?type=out&logout=1')); ?>">Absen Pulang</a>
             </div>
           </div>
 
