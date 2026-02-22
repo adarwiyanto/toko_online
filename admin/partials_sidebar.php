@@ -51,8 +51,9 @@ if (in_array($role, ['owner', 'admin'], true)) {
   <div class="card" style="margin:10px;padding:10px">
     <div style="font-size:12px;opacity:.8;margin-bottom:6px">Cabang Aktif</div>
     <?php if (in_array($role, ['owner', 'admin'], true)): ?>
-      <form method="get">
-        <input type="hidden" name="set_branch_context" value="1">
+      <form method="post">
+        <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+        <input type="hidden" name="action" value="set_branch_context">
         <select name="branch_id" onchange="this.form.submit()" style="width:100%">
           <?php foreach ($branchOptions as $bo): ?>
             <option value="<?php echo e((string)$bo['id']); ?>" <?php echo (int)$bo['id'] === $activeBranchId ? 'selected' : ''; ?>>
@@ -94,6 +95,7 @@ if (in_array($role, ['owner', 'admin'], true)) {
             <a href="<?php echo e(base_url('admin/branches.php')); ?>">Cabang</a>
             <a href="<?php echo e(base_url('admin/inventory_products.php')); ?>">Produk (Global)</a>
             <a href="<?php echo e(base_url('admin/inventory_branch_prices.php')); ?>">Harga Jual Cabang</a>
+            <a href="<?php echo e(base_url('admin/inventory_stock.php')); ?>">Stok Cabang</a>
             <a href="<?php echo e(base_url('admin/inventory_opening.php')); ?>">Stock Awal</a>
             <a href="<?php echo e(base_url('admin/inventory_purchases.php')); ?>">Pembelian Pihak Ketiga</a>
             <a href="<?php echo e(base_url('admin/inventory_kitchen_transfers.php')); ?>">Kirim Dapur ke Toko</a>
