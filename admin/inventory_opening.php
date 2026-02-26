@@ -49,10 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       } else {
         $stmtLedger->execute([$branchId, $pid, 'OPENING', $openingId, 0, abs($qty), 'Stock awal', $now]);
       }
-      $productId = ensure_products_row_from_inv_product((int)$pid);
-      if ($productId > 0) {
-        stok_barang_set_qty($branchId, $productId, $qty);
-      }
+      stock_set_qty($branchId, (int)$pid, (float)$qty);
     }
     db()->commit();
     inventory_set_flash('ok', 'Stok awal berhasil diposting. Stok realtime diperbarui.');

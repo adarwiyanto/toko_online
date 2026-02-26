@@ -661,13 +661,7 @@ function inventory_stock_by_product(int $productId): float {
 }
 
 function inv_get_stock(int $branchId, int $productId): float {
-  if ($branchId <= 0 || $productId <= 0) {
-    return 0.0;
-  }
-  $stmt = db()->prepare("SELECT qty AS stock_qty FROM stok_barang WHERE branch_id=? AND product_id=? LIMIT 1");
-  $stmt->execute([$branchId, $productId]);
-  $row = $stmt->fetch();
-  return (float)($row['stock_qty'] ?? 0);
+  return stock_get_qty($branchId, $productId);
 }
 
 function inventory_user_branch(array $user): ?array {
