@@ -94,11 +94,11 @@ if (in_array($role, ['owner', 'admin'], true)) {
             <a href="<?php echo e(base_url('admin/branches.php')); ?>">Cabang</a>
             <a href="<?php echo e(base_url('admin/inventory_products.php')); ?>">Produk (Global)</a>
             <a href="<?php echo e(base_url('admin/inventory_branch_prices.php')); ?>">Harga Jual Cabang</a>
-            <a href="<?php echo e(base_url('admin/inventory_opening.php')); ?>">Stock Awal</a>
+            <a href="<?php echo e(base_url('admin/inventory_opening.php')); ?>">Stok Awal</a>
             <a href="<?php echo e(base_url('admin/inventory_purchases.php')); ?>">Pembelian Pihak Ketiga</a>
             <a href="<?php echo e(base_url('admin/inventory_kitchen_transfers.php')); ?>">Kirim Dapur ke Toko</a>
             <a href="<?php echo e(base_url('admin/inventory_receive.php')); ?>">Penerimaan Stok Toko</a>
-            <a href="<?php echo e(base_url('admin/inventory_opname.php')); ?>">Stock Opname</a>
+            <a href="<?php echo e(base_url('admin/inventory_opname.php')); ?>">Stok Opname</a>
             <a href="<?php echo e(base_url('admin/stock_realtime.php')); ?>">Stok Cabang (Realtime)</a>
             <a href="<?php echo e(base_url('admin/inventory_hidden.php')); ?>">Hide Product</a>
           <?php endif; ?>

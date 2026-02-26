@@ -75,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     db()->commit();
-    inventory_set_flash('ok', 'Pembelian berhasil diposting ke stock ledger.');
+    inventory_set_flash('ok', 'Pembelian berhasil diposting ke stok_barang.');
   } catch (Throwable $e) {
     db()->rollBack();
     inventory_set_flash('error', 'Gagal menyimpan pembelian.');
