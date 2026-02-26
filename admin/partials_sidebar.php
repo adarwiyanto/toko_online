@@ -88,7 +88,6 @@ if (in_array($role, ['owner', 'admin'], true)) {
       <div class="item">
         <button type="button" data-toggle-submenu="#m-produk"><div class="mi">📦</div><div class="label">Produk & Inventory</div><div class="chev">▾</div></button>
         <div class="submenu" id="m-produk">
-          <a href="<?php echo e(base_url('admin/products.php')); ?>">Produk POS</a>
           <a href="<?php echo e(base_url('admin/product_categories.php')); ?>">Kategori Produk</a>
           <?php if (in_array($u['role'] ?? '', ['owner', 'admin'], true)): ?>
             <a href="<?php echo e(base_url('admin/branches.php')); ?>">Cabang</a>
