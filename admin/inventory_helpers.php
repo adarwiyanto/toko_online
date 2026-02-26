@@ -58,6 +58,23 @@ function inventory_constraint_exists(string $table, string $constraint): bool {
   return (bool)$stmt->fetchColumn();
 }
 
+function inventory_index_exists(string $table, string $indexName): bool {
+  $sql = "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1";
+  $stmt = db()->prepare($sql);
+  $stmt->execute([$table, $indexName]);
+  return (bool)$stmt->fetchColumn();
+}
+
+function inventory_create_index_if_missing(string $sqlCreate, string $table, string $indexName): void {
+  try {
+    if (!inventory_index_exists($table, $indexName)) {
+      db()->exec($sqlCreate);
+    }
+  } catch (Throwable $e) {
+    // Diamkan agar halaman tidak gagal total.
+  }
+}
+
 function inventory_is_duplicate_key(Throwable $e): bool {
   if (!($e instanceof PDOException)) {
     return false;
@@ -316,6 +333,26 @@ function inventory_ensure_tables(): void {
   } catch (Throwable $e) {
     // Safety net only.
   }
+
+  inventory_create_index_if_missing(
+    "CREATE INDEX idx_inv_stock_ledger_branch_product_created ON inv_stock_ledger (branch_id, product_id, created_at)",
+    'inv_stock_ledger',
+    'idx_inv_stock_ledger_branch_product_created'
+  );
+
+  inventory_create_index_if_missing(
+    "CREATE INDEX idx_inv_stock_ledger_branch_product ON inv_stock_ledger (branch_id, product_id)",
+    'inv_stock_ledger',
+    'idx_inv_stock_ledger_branch_product'
+  );
+
+  try {
+    if (!inventory_constraint_exists('inv_stock_ledger', 'fk_inv_stock_ledger_branch')) {
+      db()->exec("ALTER TABLE inv_stock_ledger ADD CONSTRAINT fk_inv_stock_ledger_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT");
+    }
+  } catch (Throwable $e) {
+    // Diamkan bila gagal (engine/constraint existing data).
+  }
 }
 
 
@@ -390,6 +427,25 @@ function inventory_sync_finished_product_to_pos(array $inventoryProduct): void {
 
 function inventory_stock_map(array $productIds): array {
   $branchId = inventory_active_branch_id();
+  if ($branchId <= 0) {
+    return [];
+  }
+  if (count($productIds) === 0) {
+    return [];
+  }
+  $placeholders = implode(',', array_fill(0, count($productIds), '?'));
+  $stmt = db()->prepare("SELECT product_id, COALESCE(SUM(qty_in - qty_out),0) AS stock_qty FROM inv_stock_ledger WHERE branch_id=? AND product_id IN ($placeholders) GROUP BY product_id");
+  $params = array_merge([$branchId], array_values($productIds));
+  $stmt->execute($params);
+  $rows = $stmt->fetchAll();
+  $map = [];
+  foreach ($rows as $row) {
+    $map[(int)$row['product_id']] = (float)$row['stock_qty'];
+  }
+  return $map;
+}
+
+function inv_stock_map_for_branch(int $branchId, array $productIds): array {
   if ($branchId <= 0) {
     return [];
   }
