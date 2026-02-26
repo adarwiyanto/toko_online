@@ -68,6 +68,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     foreach ($items as $item) {
       $stmtItem->execute([$purchaseId, $item['product_id'], $item['qty'], $item['buy_price'], $item['line_total']]);
       $stmtLedger->execute([$branchId, $item['product_id'], $purchaseId, $item['qty'], $now]);
+      $productId = ensure_products_row_from_inv_product((int)$item['product_id']);
+      if ($productId > 0) {
+        stok_barang_add_qty($branchId, $productId, (float)$item['qty']);
+      }
     }
 
     db()->commit();

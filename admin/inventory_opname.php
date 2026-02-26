@@ -99,11 +99,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $itemStmt->execute([$opnameId]);
       $items = $itemStmt->fetchAll();
 
-      $ledgerStmt = db()->prepare("INSERT INTO inv_stock_ledger (branch_id, product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, 'OPNAME', ?, ?, ?, ?, ?)");
+      $ledgerStmt = db()->prepare("INSERT INTO inv_stock_ledger (branch_id, product_id, ref_type, ref_id, qty_in, qty_out, note, created_at) VALUES (?, ?, 'OPNAME', ?, ?, ?, ?, ?)");
       $now = inventory_now();
 
       foreach ($items as $item) {
         $diff = (float)$item['diff_qty'];
+        $productId = ensure_products_row_from_inv_product((int)$item['product_id']);
+        if ($productId > 0) {
+          stok_barang_set_qty($branchId, $productId, (float)$item['counted_qty']);
+        }
+
         if (abs($diff) < 0.0005) {
           continue;
         }

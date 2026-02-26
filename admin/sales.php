@@ -19,6 +19,22 @@ $branchFilter = inventory_sales_branch_filter('s', 'u');
 $branchFilterSql = $branchFilter['sql'];
 $branchFilterParams = $branchFilter['params'];
 $activeBranch = inventory_active_branch();
+$salesBranchId = (int)($activeBranch['id'] ?? inventory_active_branch_id());
+
+function sales_adjust_stock_by_transaction(string $transactionCode, int $branchId, float $multiplier): void {
+  if ($transactionCode === '' || strpos($transactionCode, 'LEGACY-') === 0 || $branchId <= 0) {
+    return;
+  }
+  $stmt = db()->prepare("SELECT product_id, SUM(qty) AS qty_sum FROM sales WHERE transaction_code=? GROUP BY product_id");
+  $stmt->execute([$transactionCode]);
+  foreach ($stmt->fetchAll() as $row) {
+    $pid = (int)($row['product_id'] ?? 0);
+    $qty = (float)($row['qty_sum'] ?? 0);
+    if ($pid > 0 && abs($qty) > 0.0005) {
+      stok_barang_add_qty($branchId, $pid, $qty * $multiplier);
+    }
+  }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
@@ -31,6 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (($me['role'] ?? '') !== 'owner') {
         throw new Exception('Hanya owner yang bisa menghapus transaksi.');
       }
+      db()->beginTransaction();
       if ($transactionCode !== '' && strpos($transactionCode, 'LEGACY-') !== 0) {
         $stmt = db()->prepare("SELECT DISTINCT payment_proof_path FROM sales WHERE transaction_code=?");
         $stmt->execute([$transactionCode]);
@@ -48,6 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
           }
         }
+        sales_adjust_stock_by_transaction($transactionCode, $salesBranchId, 1.0);
         $stmt = db()->prepare("DELETE s FROM sales s LEFT JOIN users u ON u.id=s.created_by WHERE s.transaction_code=?{$branchFilterSql}");
         $stmt->execute(array_merge([$transactionCode], $branchFilterParams));
       } else {
@@ -69,6 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = db()->prepare("DELETE s FROM sales s LEFT JOIN users u ON u.id=s.created_by WHERE s.id=?{$branchFilterSql}");
         $stmt->execute(array_merge([$legacySaleId], $branchFilterParams));
       }
+      db()->commit();
       redirect(base_url('admin/sales.php'));
     }
 
@@ -79,8 +98,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $reason = trim($_POST['return_reason'] ?? '');
       if ($reason === '') throw new Exception('Alasan retur wajib diisi.');
       if ($transactionCode !== '' && strpos($transactionCode, 'LEGACY-') !== 0) {
+        db()->beginTransaction();
         $stmt = db()->prepare("UPDATE sales s LEFT JOIN users u ON u.id=s.created_by SET s.return_reason=?, s.returned_at=NOW() WHERE s.transaction_code=?{$branchFilterSql}");
         $stmt->execute(array_merge([$reason, $transactionCode], $branchFilterParams));
+        sales_adjust_stock_by_transaction($transactionCode, $salesBranchId, 1.0);
+        db()->commit();
       } else {
         if ($legacySaleId <= 0) throw new Exception('Transaksi tidak ditemukan.');
         $stmt = db()->prepare("UPDATE sales s LEFT JOIN users u ON u.id=s.created_by SET s.return_reason=?, s.returned_at=NOW() WHERE s.id=?{$branchFilterSql}");
@@ -104,11 +126,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $total = $price * $qty;
 
     $transactionCode = 'TRX-' . date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
+    db()->beginTransaction();
     $stmt = db()->prepare("INSERT INTO sales (transaction_code, product_id, qty, price_each, total, created_by) VALUES (?,?,?,?,?,?)");
     $stmt->execute([$transactionCode, $product_id, $qty, $price, $total, (int)($me['id'] ?? 0)]);
+    stok_barang_add_qty($salesBranchId, $product_id, -1 * (float)$qty);
+    db()->commit();
 
     redirect(base_url('admin/sales.php'));
   } catch (Throwable $e) {
+    if (db()->inTransaction()) {
+      db()->rollBack();
+    }
     $err = $e->getMessage();
   }
 }

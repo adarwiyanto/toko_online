@@ -42,120 +42,73 @@ try {
     $q = substr($q, 0, 80);
   }
 
-  $branchName = '-';
   if ($branchId > 0) {
     $stmtBranch = db()->prepare('SELECT id, name FROM branches WHERE id=? AND is_active=1 LIMIT 1');
     $stmtBranch->execute([$branchId]);
-    $branchRow = $stmtBranch->fetch();
-    if (!$branchRow) {
+    if (!$stmtBranch->fetch()) {
       json_out(400, ['ok' => false, 'error' => 'Cabang tidak valid']);
     }
-    $branchName = (string)($branchRow['name'] ?? '-');
-  }
 
-  $sqlProducts = 'SELECT id, sku, name, unit, type FROM inv_products WHERE is_deleted=0 AND is_hidden=0';
-  $paramsProducts = [];
-  if ($q !== '') {
-    $sqlProducts .= ' AND (name LIKE ? OR sku LIKE ?)';
-    $like = '%' . $q . '%';
-    $paramsProducts = [$like, $like];
-  }
-  $sqlProducts .= ' ORDER BY name ASC';
+    $sql = "SELECT p.id AS product_id, p.sku, p.name, p.unit, b.id AS branch_id, b.name AS branch_name,
+      COALESCE(sb.qty, 0) AS stock_qty
+      FROM products p
+      JOIN branches b ON b.id=? AND b.is_active=1
+      LEFT JOIN stok_barang sb ON sb.branch_id=b.id AND sb.product_id=p.id
+      WHERE 1=1";
+    $params = [$branchId];
 
-  $stmtProducts = db()->prepare($sqlProducts);
-  $stmtProducts->execute($paramsProducts);
-  $products = $stmtProducts->fetchAll();
-
-  if (!$products) {
-    json_out(200, [
-      'ok' => true,
-      'server_time' => date('Y-m-d H:i:s'),
-      'branch_id' => $branchId,
-      'rows' => [],
-    ]);
-  }
-
-  $productMap = [];
-  $productIds = [];
-  foreach ($products as $product) {
-    $pid = (int)$product['id'];
-    $productIds[] = $pid;
-    $productMap[$pid] = [
-      'sku' => $product['sku'] ?? null,
-      'name' => (string)$product['name'],
-      'unit' => (string)$product['unit'],
-      'type' => (string)$product['type'],
-    ];
-  }
-
-  $rows = [];
-  if ($branchId > 0) {
-    $stockMap = [];
-    if ($productIds) {
-      $productPh = implode(',', array_fill(0, count($productIds), '?'));
-      $sqlLedger = "SELECT product_id, COALESCE(SUM(qty_in - qty_out),0) stock_qty
-        FROM inv_stock_ledger
-        WHERE branch_id=? AND product_id IN ($productPh)
-        GROUP BY product_id";
-      $stmtLedger = db()->prepare($sqlLedger);
-      $stmtLedger->execute(array_merge([$branchId], $productIds));
-      foreach ($stmtLedger->fetchAll() as $ledgerRow) {
-        $stockMap[(int)$ledgerRow['product_id']] = (float)$ledgerRow['stock_qty'];
-      }
+    if ($q !== '') {
+      $sql .= " AND (p.name LIKE ? OR p.sku LIKE ?)";
+      $like = '%' . $q . '%';
+      $params[] = $like;
+      $params[] = $like;
     }
 
-    foreach ($products as $product) {
-      $pid = (int)$product['id'];
+    $sql .= " ORDER BY p.name ASC";
+    $stmt = db()->prepare($sql);
+    $stmt->execute($params);
+    $rows = [];
+    foreach ($stmt->fetchAll() as $row) {
       $rows[] = [
-        'product_id' => $pid,
-        'sku' => $product['sku'] ?? null,
-        'name' => (string)$product['name'],
-        'unit' => (string)$product['unit'],
-        'type' => (string)$product['type'],
-        'branch_id' => $branchId,
-        'branch_name' => $branchName,
-        'stock_qty' => (float)($stockMap[$pid] ?? 0),
+        'product_id' => (int)$row['product_id'],
+        'sku' => $row['sku'] ?? null,
+        'name' => (string)$row['name'],
+        'unit' => (string)($row['unit'] ?? ''),
+        'type' => '',
+        'branch_id' => (int)$row['branch_id'],
+        'branch_name' => (string)$row['branch_name'],
+        'stock_qty' => (float)$row['stock_qty'],
       ];
     }
   } else {
-    $branches = db()->query('SELECT id, name FROM branches WHERE is_active=1 ORDER BY id ASC')->fetchAll();
-    $branchIds = [];
-    $branchMap = [];
-    foreach ($branches as $branch) {
-      $bid = (int)$branch['id'];
-      $branchIds[] = $bid;
-      $branchMap[$bid] = (string)$branch['name'];
+    $sql = "SELECT sb.product_id, p.sku, p.name, p.unit, sb.branch_id, b.name AS branch_name, sb.qty AS stock_qty
+      FROM stok_barang sb
+      JOIN products p ON p.id=sb.product_id
+      JOIN branches b ON b.id=sb.branch_id AND b.is_active=1
+      WHERE 1=1";
+    $params = [];
+    if ($q !== '') {
+      $sql .= " AND (p.name LIKE ? OR p.sku LIKE ?)";
+      $like = '%' . $q . '%';
+      $params[] = $like;
+      $params[] = $like;
     }
+    $sql .= " ORDER BY b.name ASC, p.name ASC";
 
-    if ($branchIds && $productIds) {
-      $branchPh = implode(',', array_fill(0, count($branchIds), '?'));
-      $productPh = implode(',', array_fill(0, count($productIds), '?'));
-      $sqlLedger = "SELECT branch_id, product_id, SUM(qty_in - qty_out) stock_qty
-        FROM inv_stock_ledger
-        WHERE branch_id IN ($branchPh)
-          AND product_id IN ($productPh)
-        GROUP BY branch_id, product_id";
-      $stmtLedger = db()->prepare($sqlLedger);
-      $stmtLedger->execute(array_merge($branchIds, $productIds));
-
-      foreach ($stmtLedger->fetchAll() as $ledgerRow) {
-        $bid = (int)$ledgerRow['branch_id'];
-        $pid = (int)$ledgerRow['product_id'];
-        if (!isset($branchMap[$bid], $productMap[$pid])) {
-          continue;
-        }
-
-        $rows[] = [
-          'product_id' => $pid,
-          'sku' => $productMap[$pid]['sku'],
-          'name' => $productMap[$pid]['name'],
-          'unit' => $productMap[$pid]['unit'],
-          'type' => $productMap[$pid]['type'],
-          'branch_id' => $bid,
-          'branch_name' => $branchMap[$bid],
-          'stock_qty' => (float)$ledgerRow['stock_qty'],
-        ];
-      }
+    $stmt = db()->prepare($sql);
+    $stmt->execute($params);
+    $rows = [];
+    foreach ($stmt->fetchAll() as $row) {
+      $rows[] = [
+        'product_id' => (int)$row['product_id'],
+        'sku' => $row['sku'] ?? null,
+        'name' => (string)$row['name'],
+        'unit' => (string)($row['unit'] ?? ''),
+        'type' => '',
+        'branch_id' => (int)$row['branch_id'],
+        'branch_name' => (string)$row['branch_name'],
+        'stock_qty' => (float)$row['stock_qty'],
+      ];
     }
   }
 
