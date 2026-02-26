@@ -104,10 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       foreach ($items as $item) {
         $diff = (float)$item['diff_qty'];
-        $productId = ensure_products_row_from_inv_product((int)$item['product_id']);
-        if ($productId > 0) {
-          stok_barang_set_qty($branchId, $productId, (float)$item['counted_qty']);
-        }
+        stock_set_qty($branchId, (int)$item['product_id'], (float)$item['counted_qty']);
 
         if (abs($diff) < 0.0005) {
           continue;

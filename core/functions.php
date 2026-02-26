@@ -534,6 +534,15 @@ function stock_add_qty(int $branchId, int $invProductId, float $delta): void {
   $stmt->execute([$branchId, $invProductId, $delta]);
 }
 
+function stock_set_qty(int $branchId, int $invProductId, float $qty): void {
+  ensure_inv_stocks_table();
+  if ($branchId <= 0 || $invProductId <= 0) {
+    return;
+  }
+  $stmt = db()->prepare("INSERT INTO inv_stocks (branch_id, inv_product_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=VALUES(qty)");
+  $stmt->execute([$branchId, $invProductId, $qty]);
+}
+
 function ensure_owner_role(): void {
   static $ensured = false;
   if ($ensured) return;
