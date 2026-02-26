@@ -49,12 +49,12 @@ try {
       json_out(400, ['ok' => false, 'error' => 'Cabang tidak valid']);
     }
 
-    $sql = "SELECT p.id AS product_id, p.sku, p.name, p.unit, b.id AS branch_id, b.name AS branch_name,
-      COALESCE(sb.qty, 0) AS stock_qty
-      FROM products p
-      JOIN branches b ON b.id=? AND b.is_active=1
-      LEFT JOIN stok_barang sb ON sb.branch_id=b.id AND sb.product_id=p.id
-      WHERE 1=1";
+    $sql = "SELECT sb.product_id, p.sku, p.name, p.unit, b.id AS branch_id, b.name AS branch_name,
+      sb.qty AS stock_qty
+      FROM stok_barang sb
+      JOIN products p ON p.id=sb.product_id
+      JOIN branches b ON b.id=sb.branch_id AND b.is_active=1
+      WHERE sb.branch_id=?";
     $params = [$branchId];
 
     if ($q !== '') {

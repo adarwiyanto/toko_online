@@ -161,7 +161,7 @@ $customCss = setting('custom_css', '');
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Stock Opname</title>
+  <title>Stok Opname</title>
   <link rel="icon" href="<?php echo e(favicon_url()); ?>">
   <link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>">
   <style><?php echo $customCss; ?></style>
@@ -170,7 +170,7 @@ $customCss = setting('custom_css', '');
 <div class="container">
   <?php include __DIR__ . '/partials_sidebar.php'; ?>
   <div class="main">
-    <div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button><span style="color:#fff;font-weight:700">Produk & Inventory / Stock Opname</span></div>
+    <div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button><span style="color:#fff;font-weight:700">Produk & Inventory / Stok Opname</span></div>
     <div class="content">
       <?php if ($flash): ?><div class="card" style="margin-bottom:12px"><?php echo e($flash['message']); ?></div><?php endif; ?>
 
@@ -184,7 +184,7 @@ $customCss = setting('custom_css', '');
       </div>
 
       <div class="card" style="margin-bottom:14px">
-        <h3 style="margin-top:0">Riwayat Stock Opname</h3>
+        <h3 style="margin-top:0">Riwayat Stok Opname</h3>
         <table class="table">
           <thead><tr><th>ID</th><th>Tanggal</th><th>Status</th><th>Dibuat</th><th>Aksi</th></tr></thead>
           <tbody><?php foreach ($list as $row): ?><tr><td>#<?php echo e((string)$row['id']); ?></td><td><?php echo e($row['opname_date']); ?></td><td><?php echo e($row['status']); ?></td><td><?php echo e($row['created_at']); ?></td><td><a class="btn" href="<?php echo e(base_url('admin/inventory_opname.php?view=' . (int)$row['id'])); ?>">Detail</a></td></tr><?php endforeach; ?></tbody>
