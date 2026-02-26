@@ -319,9 +319,11 @@ function ensure_landing_order_tables(): void {
         id INT AUTO_INCREMENT PRIMARY KEY,
         order_code VARCHAR(40) NOT NULL,
         customer_id INT NOT NULL,
+        branch_id INT NULL,
         status ENUM('pending','processing','completed','cancelled','pending_payment','unpaid') NOT NULL DEFAULT 'pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         completed_at TIMESTAMP NULL DEFAULT NULL,
+        stock_deducted_at DATETIME NULL DEFAULT NULL,
         KEY idx_status (status),
         FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
       ) ENGINE=InnoDB
@@ -331,12 +333,12 @@ function ensure_landing_order_tables(): void {
       CREATE TABLE IF NOT EXISTS order_items (
         id INT AUTO_INCREMENT PRIMARY KEY,
         order_id INT NOT NULL,
-        product_id INT NOT NULL,
+        inv_product_id INT NOT NULL,
         qty INT NOT NULL DEFAULT 1,
         price_each DECIMAL(15,2) NOT NULL DEFAULT 0,
         subtotal DECIMAL(15,2) NOT NULL DEFAULT 0,
         FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+        FOREIGN KEY (inv_product_id) REFERENCES inv_products(id) ON DELETE CASCADE
       ) ENGINE=InnoDB
     ");
 
@@ -360,6 +362,7 @@ function ensure_landing_order_tables(): void {
     $stmt->execute(['loyalty_point_value', '0']);
     $stmt->execute(['loyalty_remainder_mode', 'discard']);
     $stmt->execute(['landing_order_enabled', '1']);
+    $stmt->execute(['web_sales_branch_id', '0']);
 
     $stmt = $db->query("SHOW COLUMNS FROM customers LIKE 'phone'");
     $hasPhone = (bool)$stmt->fetch();
@@ -406,6 +409,31 @@ function ensure_landing_order_tables(): void {
     } catch (Throwable $e) {
       // abaikan jika tidak bisa mengubah kolom.
     }
+    try {
+      $db->exec("ALTER TABLE orders ADD COLUMN branch_id INT NULL AFTER customer_id");
+    } catch (Throwable $e) {
+      // abaikan jika kolom sudah ada.
+    }
+    try {
+      $db->exec("ALTER TABLE orders ADD COLUMN stock_deducted_at DATETIME NULL AFTER completed_at");
+    } catch (Throwable $e) {
+      // abaikan jika kolom sudah ada.
+    }
+    try {
+      $db->exec("ALTER TABLE order_items ADD COLUMN inv_product_id INT NULL AFTER order_id");
+    } catch (Throwable $e) {
+      // abaikan jika kolom sudah ada.
+    }
+    try {
+      $db->exec("\n        UPDATE order_items oi\n        JOIN products p ON p.id = oi.product_id\n        JOIN inv_products ip ON ip.sku = p.sku\n        SET oi.inv_product_id = ip.id\n        WHERE oi.inv_product_id IS NULL\n      ");
+    } catch (Throwable $e) {
+      // abaikan jika migrasi gagal.
+    }
+    try {
+      $db->exec("ALTER TABLE order_items MODIFY inv_product_id INT NOT NULL");
+    } catch (Throwable $e) {
+      // abaikan jika belum memungkinkan.
+    }
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.
   }
@@ -420,17 +448,90 @@ function ensure_loyalty_rewards_table(): void {
     db()->exec("
       CREATE TABLE IF NOT EXISTS loyalty_rewards (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        product_id INT NOT NULL,
+        inv_product_id INT NOT NULL,
         points_required INT NOT NULL DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY uniq_product (product_id),
+        UNIQUE KEY uniq_product (inv_product_id),
         KEY idx_points (points_required),
-        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+        FOREIGN KEY (inv_product_id) REFERENCES inv_products(id) ON DELETE CASCADE
       ) ENGINE=InnoDB
     ");
+
+    try {
+      db()->exec("ALTER TABLE loyalty_rewards ADD COLUMN inv_product_id INT NULL AFTER id");
+    } catch (Throwable $e) {
+      // ignore if exists
+    }
+    try {
+      db()->exec("
+        UPDATE loyalty_rewards lr
+        JOIN products p ON p.id = lr.product_id
+        JOIN inv_products ip ON ip.sku = p.sku
+        SET lr.inv_product_id = ip.id
+        WHERE lr.inv_product_id IS NULL
+      ");
+    } catch (Throwable $e) {
+      // ignore legacy migration issue
+    }
+    try {
+      db()->exec("ALTER TABLE loyalty_rewards MODIFY inv_product_id INT NOT NULL");
+    } catch (Throwable $e) {
+      // ignore
+    }
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.
   }
+}
+
+function ensure_inv_stocks_table(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+
+  try {
+    db()->exec("\n      CREATE TABLE IF NOT EXISTS inv_stocks (\n        id INT AUTO_INCREMENT PRIMARY KEY,\n        branch_id INT NOT NULL,\n        inv_product_id INT NOT NULL,\n        qty DECIMAL(18,3) NOT NULL DEFAULT 0,\n        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n        UNIQUE KEY uq_inv_stocks_branch_product (branch_id, inv_product_id),\n        INDEX idx_inv_stocks_branch (branch_id),\n        INDEX idx_inv_stocks_product (inv_product_id),\n        CONSTRAINT fk_inv_stocks_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,\n        CONSTRAINT fk_inv_stocks_product FOREIGN KEY (inv_product_id) REFERENCES inv_products(id) ON DELETE CASCADE\n      ) ENGINE=InnoDB\n    ");
+  } catch (Throwable $e) {
+    // Safety net only.
+  }
+}
+
+function web_sales_branch_id(): int {
+  $saved = (int)setting('web_sales_branch_id', '0');
+  if ($saved > 0) {
+    return $saved;
+  }
+
+  try {
+    $stmt = db()->query("SELECT id FROM branches WHERE is_active=1 ORDER BY id ASC LIMIT 1");
+    $row = $stmt->fetch();
+    $branchId = (int)($row['id'] ?? 0);
+    if ($branchId > 0) {
+      set_setting('web_sales_branch_id', (string)$branchId);
+    }
+    return $branchId;
+  } catch (Throwable $e) {
+    return 0;
+  }
+}
+
+function stock_get_qty(int $branchId, int $invProductId): float {
+  ensure_inv_stocks_table();
+  if ($branchId <= 0 || $invProductId <= 0) {
+    return 0.0;
+  }
+  $stmt = db()->prepare("SELECT qty FROM inv_stocks WHERE branch_id=? AND inv_product_id=? LIMIT 1");
+  $stmt->execute([$branchId, $invProductId]);
+  $row = $stmt->fetch();
+  return (float)($row['qty'] ?? 0);
+}
+
+function stock_add_qty(int $branchId, int $invProductId, float $delta): void {
+  ensure_inv_stocks_table();
+  if ($branchId <= 0 || $invProductId <= 0) {
+    return;
+  }
+  $stmt = db()->prepare("INSERT INTO inv_stocks (branch_id, inv_product_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)");
+  $stmt->execute([$branchId, $invProductId, $delta]);
 }
 
 function ensure_owner_role(): void {
