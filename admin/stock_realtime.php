@@ -82,7 +82,7 @@ $customCss = setting('custom_css', '');
     </div>
   </div>
 </div>
-<script>
+<script nonce="<?= htmlspecialchars(csp_nonce(), ENT_QUOTES, 'UTF-8'); ?>">
 (function(){
   const apiUrlBase = "<?= e(base_url('admin/api_stock_realtime.php')); ?>";
   const branchEl = document.getElementById('branch_id');
