@@ -42,9 +42,10 @@ try {
     $q = substr($q, 0, 80);
   }
 
-  $sql = "SELECT sb.inv_product_id AS product_id, p.sku, p.name, p.unit, sb.branch_id, sb.qty AS stock_qty
+  $sql = "SELECT sb.inv_product_id AS product_id, p.sku, p.name, p.unit, p.type, p.kitchen_group, sb.branch_id, b.name AS branch_name, sb.qty AS stock_qty
     FROM inv_stocks sb
     JOIN inv_products p ON p.id=sb.inv_product_id
+    LEFT JOIN branches b ON b.id=sb.branch_id
     WHERE p.is_deleted=0 AND p.is_hidden=0";
   $params = [];
 
@@ -66,14 +67,36 @@ try {
   $stmt->execute($params);
   $rows = [];
   foreach ($stmt->fetchAll() as $row) {
+    $kitchenGroup = strtolower(trim((string)($row['kitchen_group'] ?? '')));
+    $type = '';
+    if ($kitchenGroup !== '') {
+      if ($kitchenGroup === 'raw') {
+        $type = 'RAW';
+      } elseif ($kitchenGroup === 'finished') {
+        $type = 'FINISHED';
+      }
+    }
+    if ($type === '') {
+      $type = strtoupper(trim((string)($row['type'] ?? '')));
+      if ($type === '') {
+        $type = 'RAW';
+      }
+    }
+
+    $branchIdRow = (int)$row['branch_id'];
+    $branchName = trim((string)($row['branch_name'] ?? ''));
+    if ($branchName === '') {
+      $branchName = 'Cabang ID ' . $branchIdRow;
+    }
+
     $rows[] = [
       'product_id' => (int)$row['product_id'],
       'sku' => $row['sku'] ?? null,
       'name' => (string)$row['name'],
       'unit' => (string)($row['unit'] ?? ''),
-      'type' => '',
-      'branch_id' => (int)$row['branch_id'],
-      'branch_name' => 'Cabang #' . (int)$row['branch_id'],
+      'type' => $type,
+      'branch_id' => $branchIdRow,
+      'branch_name' => $branchName,
       'stock_qty' => (float)$row['stock_qty'],
     ];
   }
