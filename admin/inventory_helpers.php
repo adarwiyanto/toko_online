@@ -515,7 +515,7 @@ function inventory_web_sales_branch_id(): int {
 
 function deduct_stok_barang_for_order_if_needed(int $orderId, int $branchId): bool {
   ensure_orders_stock_deducted_column();
-  ensure_stok_barang_table();
+  ensure_inv_stocks_table();
   if ($orderId <= 0 || $branchId <= 0) {
     return false;
   }
@@ -527,13 +527,17 @@ function deduct_stok_barang_for_order_if_needed(int $orderId, int $branchId): bo
     return false;
   }
 
-  $stmtItems = db()->prepare("SELECT product_id, SUM(qty) AS qty_sum FROM order_items WHERE order_id=? GROUP BY product_id");
+  $stmtItems = db()->prepare("SELECT inv_product_id, SUM(qty) AS qty_sum FROM order_items WHERE order_id=? GROUP BY inv_product_id");
   $stmtItems->execute([$orderId]);
   foreach ($stmtItems->fetchAll() as $row) {
-    $pid = (int)($row['product_id'] ?? 0);
+    $pid = (int)($row['inv_product_id'] ?? 0);
     $qty = (float)($row['qty_sum'] ?? 0);
     if ($pid > 0 && abs($qty) > 0.0005) {
-      stok_barang_add_qty($branchId, $pid, -1 * $qty);
+      $current = stock_get_qty($branchId, $pid);
+      if ($current < $qty) {
+        throw new RuntimeException('Stok tidak cukup untuk order #' . $orderId);
+      }
+      stock_add_qty($branchId, $pid, -1 * $qty);
     }
   }
 

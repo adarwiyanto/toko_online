@@ -49,10 +49,10 @@ try {
       json_out(400, ['ok' => false, 'error' => 'Cabang tidak valid']);
     }
 
-    $sql = "SELECT sb.product_id, p.sku, p.name, p.unit, b.id AS branch_id, b.name AS branch_name,
+    $sql = "SELECT sb.inv_product_id AS product_id, p.sku, p.name, p.unit, b.id AS branch_id, b.name AS branch_name,
       sb.qty AS stock_qty
-      FROM stok_barang sb
-      JOIN products p ON p.id=sb.product_id
+      FROM inv_stocks sb
+      JOIN inv_products p ON p.id=sb.inv_product_id
       JOIN branches b ON b.id=sb.branch_id AND b.is_active=1
       WHERE sb.branch_id=?";
     $params = [$branchId];
@@ -81,9 +81,9 @@ try {
       ];
     }
   } else {
-    $sql = "SELECT sb.product_id, p.sku, p.name, p.unit, sb.branch_id, b.name AS branch_name, sb.qty AS stock_qty
-      FROM stok_barang sb
-      JOIN products p ON p.id=sb.product_id
+    $sql = "SELECT sb.inv_product_id AS product_id, p.sku, p.name, p.unit, sb.branch_id, b.name AS branch_name, sb.qty AS stock_qty
+      FROM inv_stocks sb
+      JOIN inv_products p ON p.id=sb.inv_product_id
       JOIN branches b ON b.id=sb.branch_id AND b.is_active=1
       WHERE 1=1";
     $params = [];
