@@ -42,74 +42,40 @@ try {
     $q = substr($q, 0, 80);
   }
 
+  $sql = "SELECT sb.inv_product_id AS product_id, p.sku, p.name, p.unit, sb.branch_id, sb.qty AS stock_qty
+    FROM inv_stocks sb
+    JOIN inv_products p ON p.id=sb.inv_product_id
+    WHERE p.is_deleted=0 AND p.is_hidden=0";
+  $params = [];
+
   if ($branchId > 0) {
-    $stmtBranch = db()->prepare('SELECT id, name FROM branches WHERE id=? AND is_active=1 LIMIT 1');
-    $stmtBranch->execute([$branchId]);
-    if (!$stmtBranch->fetch()) {
-      json_out(400, ['ok' => false, 'error' => 'Cabang tidak valid']);
-    }
+    $sql .= " AND sb.branch_id=?";
+    $params[] = $branchId;
+  }
 
-    $sql = "SELECT sb.inv_product_id AS product_id, p.sku, p.name, p.unit, b.id AS branch_id, b.name AS branch_name,
-      sb.qty AS stock_qty
-      FROM inv_stocks sb
-      JOIN inv_products p ON p.id=sb.inv_product_id
-      JOIN branches b ON b.id=sb.branch_id AND b.is_active=1
-      WHERE sb.branch_id=?";
-    $params = [$branchId];
+  if ($q !== '') {
+    $sql .= " AND (p.name LIKE ? OR p.sku LIKE ?)";
+    $like = '%' . $q . '%';
+    $params[] = $like;
+    $params[] = $like;
+  }
 
-    if ($q !== '') {
-      $sql .= " AND (p.name LIKE ? OR p.sku LIKE ?)";
-      $like = '%' . $q . '%';
-      $params[] = $like;
-      $params[] = $like;
-    }
+  $sql .= " ORDER BY sb.branch_id ASC, p.name ASC";
 
-    $sql .= " ORDER BY p.name ASC";
-    $stmt = db()->prepare($sql);
-    $stmt->execute($params);
-    $rows = [];
-    foreach ($stmt->fetchAll() as $row) {
-      $rows[] = [
-        'product_id' => (int)$row['product_id'],
-        'sku' => $row['sku'] ?? null,
-        'name' => (string)$row['name'],
-        'unit' => (string)($row['unit'] ?? ''),
-        'type' => '',
-        'branch_id' => (int)$row['branch_id'],
-        'branch_name' => (string)$row['branch_name'],
-        'stock_qty' => (float)$row['stock_qty'],
-      ];
-    }
-  } else {
-    $sql = "SELECT sb.inv_product_id AS product_id, p.sku, p.name, p.unit, sb.branch_id, b.name AS branch_name, sb.qty AS stock_qty
-      FROM inv_stocks sb
-      JOIN inv_products p ON p.id=sb.inv_product_id
-      JOIN branches b ON b.id=sb.branch_id AND b.is_active=1
-      WHERE 1=1";
-    $params = [];
-    if ($q !== '') {
-      $sql .= " AND (p.name LIKE ? OR p.sku LIKE ?)";
-      $like = '%' . $q . '%';
-      $params[] = $like;
-      $params[] = $like;
-    }
-    $sql .= " ORDER BY b.name ASC, p.name ASC";
-
-    $stmt = db()->prepare($sql);
-    $stmt->execute($params);
-    $rows = [];
-    foreach ($stmt->fetchAll() as $row) {
-      $rows[] = [
-        'product_id' => (int)$row['product_id'],
-        'sku' => $row['sku'] ?? null,
-        'name' => (string)$row['name'],
-        'unit' => (string)($row['unit'] ?? ''),
-        'type' => '',
-        'branch_id' => (int)$row['branch_id'],
-        'branch_name' => (string)$row['branch_name'],
-        'stock_qty' => (float)$row['stock_qty'],
-      ];
-    }
+  $stmt = db()->prepare($sql);
+  $stmt->execute($params);
+  $rows = [];
+  foreach ($stmt->fetchAll() as $row) {
+    $rows[] = [
+      'product_id' => (int)$row['product_id'],
+      'sku' => $row['sku'] ?? null,
+      'name' => (string)$row['name'],
+      'unit' => (string)($row['unit'] ?? ''),
+      'type' => '',
+      'branch_id' => (int)$row['branch_id'],
+      'branch_name' => 'Cabang #' . (int)$row['branch_id'],
+      'stock_qty' => (float)$row['stock_qty'],
+    ];
   }
 
   json_out(200, [

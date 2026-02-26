@@ -136,8 +136,6 @@ $sqlProducts = "SELECT * FROM inv_products WHERE is_deleted=0 AND is_hidden=0";
 if ($viewAudience !== 'all') { $sqlProducts .= " AND audience='" . $viewAudience . "'"; }
 $sqlProducts .= " ORDER BY id DESC";
 $products = db()->query($sqlProducts)->fetchAll();
-$productIds = array_map(static function ($row) { return (int)$row['id']; }, $products);
-$stockMap = inventory_stock_map($productIds);
 $flash = inventory_get_flash();
 $customCss = setting('custom_css', '');
 ?>
@@ -220,7 +218,7 @@ $customCss = setting('custom_css', '');
       <div class="card">
         <h3 style="margin-top:0">Daftar Produk Aktif</h3><div style="margin-bottom:8px;display:flex;gap:8px"><a class="btn" href="<?php echo e(base_url('admin/inventory_products.php?audience=all')); ?>">Semua</a><a class="btn" href="<?php echo e(base_url('admin/inventory_products.php?audience=toko')); ?>">Produk Toko</a><a class="btn" href="<?php echo e(base_url('admin/inventory_products.php?audience=dapur')); ?>">Produk Dapur</a></div>
         <table class="table">
-          <thead><tr><th>Nama</th><th>SKU</th><th>Unit</th><th>Cabang</th><th>Tipe</th><th>Grup Dapur</th><th>Harga Jual</th><th>Stok Sistem</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Nama</th><th>SKU</th><th>Unit</th><th>Cabang</th><th>Tipe</th><th>Grup Dapur</th><th>Harga Jual</th><th>Aksi</th></tr></thead>
           <tbody>
             <?php foreach ($products as $p): ?>
             <tr>
@@ -231,7 +229,6 @@ $customCss = setting('custom_css', '');
               <td><?php echo e($p['type']); ?></td>
               <td><?php echo e((string)($p['kitchen_group'] ?? '-')); ?></td>
               <td><?php echo e($p['sell_price'] !== null ? number_format((float)$p['sell_price'], 2, '.', ',') : '-'); ?></td>
-              <td><?php echo e(number_format((float)($stockMap[(int)$p['id']] ?? 0), 3, '.', ',')); ?></td>
               <td style="display:flex;gap:8px;flex-wrap:wrap">
                 <a class="btn" href="<?php echo e(base_url('admin/inventory_products.php?edit=' . (int)$p['id'])); ?>">Edit</a>
                 <form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="hide"><input type="hidden" name="id" value="<?php echo e((string)$p['id']); ?>"><button class="btn" type="submit">Hide</button></form>
