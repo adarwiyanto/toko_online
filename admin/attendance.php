@@ -18,7 +18,7 @@ $statusFilter = trim((string) ($_GET['status'] ?? ''));
 $month = max(1, min(12, (int)($_GET['month'] ?? date('n'))));
 $year = max(2000, min(2100, (int)($_GET['year'] ?? date('Y'))));
 $isExport = (($_GET['export'] ?? '') === 'csv');
-$storeRoles = ['manager_toko', 'pegawai_pos', 'pegawai_non_pos'];
+$storeRoles = ['manager_toko', 'adm', 'pegawai_pos', 'pegawai_non_pos'];
 $kitchenRoles = ['manager_dapur', 'pegawai_dapur'];
 
 function role_flags($role, $storeRoles, $kitchenRoles) {
@@ -41,6 +41,7 @@ $me = current_user();
 $currentRole = (string)($me['role'] ?? '');
 $employeeRoleFilter = [
   'admin',
+  'adm',
   'pegawai_pos',
   'pegawai_non_pos',
   'manager_toko',
@@ -48,7 +49,7 @@ $employeeRoleFilter = [
   'manager_dapur',
 ];
 if ($currentRole === 'manager_toko') {
-  $employeeRoleFilter = ['pegawai_pos', 'pegawai_non_pos'];
+  $employeeRoleFilter = ['adm', 'pegawai_pos', 'pegawai_non_pos'];
 } elseif ($currentRole === 'manager_dapur') {
   $employeeRoleFilter = ['pegawai_dapur'];
 }

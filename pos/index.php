@@ -49,7 +49,7 @@ $hasCheckoutToday = !empty($attendanceToday['checkout_time']);
 $attendanceConfirmed = false;
 if (in_array($role, ['pegawai_dapur', 'manager_dapur'], true)) {
   $attendanceConfirmed = !empty($_SESSION['kitchen_attendance_confirmed']);
-} elseif (in_array($role, ['pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true)) {
+} elseif (in_array($role, ['adm', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true)) {
   $attendanceConfirmed = !empty($_SESSION['pos_attendance_confirmed']);
 }
 

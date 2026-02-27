@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($stmt->fetch()) throw new Exception('Username sudah dipakai.');
 
     $role = (string)($invite['role'] ?? 'pegawai_pos');
-    if (!in_array($role, ['admin', 'owner', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur', 'manager_dapur'], true)) $role = 'pegawai_pos';
+    if (!in_array($role, ['admin', 'owner', 'adm', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur', 'manager_dapur'], true)) $role = 'pegawai_pos';
     $hash = password_hash($p1, PASSWORD_DEFAULT);
     $email = (string)($invite['email'] ?? '');
     $branchId = isset($invite['branch_id']) ? (int)$invite['branch_id'] : 0;
