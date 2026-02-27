@@ -23,8 +23,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $unit = strtolower(trim((string)($_POST['unit'] ?? 'pcs')));
     $type = strtoupper(trim((string)($_POST['type'] ?? 'RAW')));
     $audience = (string)($_POST['audience'] ?? 'toko');
-    $kitchenGroup = null;
+    $kitchenGroup = null; // akan dinormalisasi otomatis
     $sellPrice = $_POST['sell_price'] !== '' ? (float)$_POST['sell_price'] : null;
+    $showOnLanding = isset($_POST['show_on_landing']) ? 1 : 0;
 
     if ($name === '') {
       inventory_set_flash('error', 'Nama produk wajib diisi.');
@@ -43,6 +44,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($type === 'RAW') {
       $audience = 'dapur';
     }
+
+// Set kitchen_group agar modul dapur konsisten (raw vs finished).
+if ($audience === 'toko') {
+  $kitchenGroup = 'finished';
+} else {
+  $kitchenGroup = ($type === 'RAW') ? 'raw' : 'finished';
+}
 
     if (!in_array($unit, $allowedUnits, true)) {
       inventory_set_flash('error', 'Satuan tidak valid. Pilih gram, kilogram, pcs, atau packs.');
@@ -73,16 +81,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $now = inventory_now();
     try {
       if ($id > 0) {
-        $stmt = db()->prepare("UPDATE inv_products SET sku=?, name=?, unit=?, type=?, audience=?, kitchen_group=?, sell_price=?, image_path=?, updated_at=? WHERE id=?");
-        $stmt->execute([$sku !== '' ? $sku : null, $name, $unit, $type, $audience, $kitchenGroup, $sellPrice, $imagePath, $now, $id]);
+        $stmt = db()->prepare("UPDATE inv_products SET sku=?, name=?, unit=?, type=?, audience=?, kitchen_group=?, sell_price=?, image_path=?, show_on_landing=?, updated_at=? WHERE id=?");
+        $stmt->execute([$sku !== '' ? $sku : null, $name, $unit, $type, $audience, $kitchenGroup, $sellPrice, $imagePath, $showOnLanding, $now, $id]);
         $stmt = db()->prepare("SELECT * FROM inv_products WHERE id=? LIMIT 1");
         $stmt->execute([$id]);
         $savedProduct = $stmt->fetch() ?: [];
         inventory_sync_finished_product_to_pos($savedProduct);
         inventory_set_flash('ok', 'Produk berhasil diperbarui.');
       } else {
-        $stmt = db()->prepare("INSERT INTO inv_products (sku, name, unit, type, audience, kitchen_group, sell_price, image_path, is_hidden, is_deleted, created_at, updated_at) VALUES (?,?,?,?,?,?,?, ?,0,0,?,?)");
-        $stmt->execute([$sku !== '' ? $sku : null, $name, $unit, $type, $audience, $kitchenGroup, $sellPrice, $imagePath, $now, $now]);
+        $stmt = db()->prepare("INSERT INTO inv_products (sku, name, unit, type, audience, kitchen_group, sell_price, image_path, show_on_landing, is_hidden, is_deleted, created_at, updated_at) VALUES (?,?,?,?,?,?,?, ?,?,0,0,?,?)");
+        $stmt->execute([$sku !== '' ? $sku : null, $name, $unit, $type, $audience, $kitchenGroup, $sellPrice, $imagePath, $showOnLanding, $now, $now]);
         $newId = (int)db()->lastInsertId();
         $stmt = db()->prepare("SELECT * FROM inv_products WHERE id=? LIMIT 1");
         $stmt->execute([$newId]);
@@ -206,6 +214,15 @@ $customCss = setting('custom_css', '');
               <small class="inventory-product-note">Cabang toko hanya menerima tipe finished.</small>
             </div>
             <div class="row"><label>Harga Jual</label><input type="number" step="0.01" name="sell_price" value="<?php echo e(isset($editData['sell_price']) ? (string)$editData['sell_price'] : ''); ?>"></div>
+<div class="row"><label>Tampilkan di Landing Page</label>
+  <?php $selectedShow = (int)($editData['show_on_landing'] ?? 1); ?>
+  <label style="display:flex;align-items:center;gap:8px">
+    <input type="checkbox" name="show_on_landing" value="1" <?php echo $selectedShow ? 'checked' : ''; ?>>
+    <span>Aktif</span>
+  </label>
+  <small class="inventory-product-note">Jika dimatikan, produk tidak tampil di landing page (katalog/checkout).</small>
+</div>
+
             <div class="row"><label>Gambar Produk</label><input type="file" name="image" accept=".jpg,.jpeg,.png"></div>
           </div>
           <?php if (!empty($editData['image_path'])): ?>
