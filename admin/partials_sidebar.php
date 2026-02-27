@@ -91,7 +91,6 @@ if (in_array($role, ['owner', 'admin'], true)) {
         <div class="submenu" id="m-produk">
           <a href="<?php echo e(base_url('admin/product_categories.php')); ?>">Kategori Produk</a>
           <?php if (in_array($u['role'] ?? '', ['owner', 'admin'], true)): ?>
-            <a href="<?php echo e(base_url('admin/branches.php')); ?>">Cabang</a>
             <a href="<?php echo e(base_url('admin/inventory_products.php')); ?>">Produk (Global)</a>
             <a href="<?php echo e(base_url('admin/inventory_branch_prices.php')); ?>">Harga Jual Cabang</a>
             <a href="<?php echo e(base_url('admin/inventory_opening.php')); ?>">Stok Awal</a>
@@ -116,6 +115,7 @@ if (in_array($role, ['owner', 'admin'], true)) {
       <div class="item">
         <button type="button" data-toggle-submenu="#m-admin"><div class="mi">⚙️</div><div class="label">Admin</div><div class="chev">▾</div></button>
         <div class="submenu" id="m-admin">
+          <a href="<?php echo e(base_url('admin/branches.php')); ?>">Cabang</a>
           <a href="<?php echo e(base_url('admin/users.php')); ?>">User</a>
           <a href="<?php echo e(base_url('admin/store.php')); ?>">Profil Toko</a>
           <a href="<?php echo e(base_url('admin/theme.php')); ?>">Tema / CSS</a>
