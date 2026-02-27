@@ -18,10 +18,10 @@ $me = current_user();
 
 function user_manageable_roles_for(string $role): array {
   if ($role === 'owner') {
-    return ['owner', 'admin', 'adm', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur', 'manager_dapur'];
+    return ['owner', 'admin', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur', 'manager_dapur'];
   }
   if ($role === 'admin') {
-    return ['adm', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur', 'manager_dapur'];
+    return ['pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur', 'manager_dapur'];
   }
   if ($role === 'manager_toko') {
     return ['pegawai_pos', 'pegawai_non_pos'];
@@ -37,8 +37,8 @@ $manageableRoles = user_manageable_roles_for((string)($me['role'] ?? ''));
 function role_branch_type(?string $role): ?string {
   $role = (string)$role;
   if (in_array($role, ['pegawai_pos','pegawai_non_pos','manager_toko'], true)) return 'toko';
-  if ($role === 'adm') return 'adm';
   if (in_array($role, ['pegawai_dapur','manager_dapur'], true)) return 'dapur';
+  if ($role === 'admin') return 'adm';
   return null;
 }
 
@@ -309,7 +309,7 @@ $mailCfg = mail_settings();
                     'owner' => 'owner',
                     'superadmin' => 'owner',
                     'admin' => 'admin',
-                    'adm' => 'adm',
+                    'adm' => 'admin',
                     'pegawai_pos' => 'pegawai_pos',
                     'pegawai_non_pos' => 'pegawai_non_pos',
                     'manager_toko' => 'manager_toko',
@@ -317,7 +317,7 @@ $mailCfg = mail_settings();
                     'manager_dapur' => 'manager_dapur',
                   ];
                   $roleValue = (string)($u['role'] ?? '');
-                  $roleValueNormalized = $roleValue === 'superadmin' ? 'owner' : $roleValue;
+                  $roleValueNormalized = $roleValue === 'superadmin' ? 'owner' : ($roleValue === 'adm' ? 'admin' : $roleValue);
                   $roleLabel = $roleLabels[$roleValue] ?? ($roleValue !== '' ? $roleValue : 'pegawai_pos');
                 ?>
                 <tr>
@@ -348,7 +348,6 @@ $mailCfg = mail_settings();
                           <select name="role">
                             <option value="owner" <?php echo ($roleValueNormalized === 'owner') ? 'selected' : ''; ?>>owner</option>
                             <option value="admin" <?php echo ($roleValueNormalized === 'admin') ? 'selected' : ''; ?>>admin</option>
-                            <option value="adm" <?php echo ($roleValueNormalized === 'adm') ? 'selected' : ''; ?>>adm</option>
                             <option value="pegawai_pos" <?php echo ($roleValueNormalized === 'pegawai_pos') ? 'selected' : ''; ?>>pegawai_pos</option>
                             <option value="pegawai_non_pos" <?php echo ($roleValueNormalized === 'pegawai_non_pos') ? 'selected' : ''; ?>>pegawai_non_pos</option>
                             <option value="manager_toko" <?php echo ($roleValueNormalized === 'manager_toko') ? 'selected' : ''; ?>>manager_toko</option>
