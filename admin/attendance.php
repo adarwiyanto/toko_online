@@ -18,6 +18,21 @@ $statusFilter = trim((string) ($_GET['status'] ?? ''));
 $month = max(1, min(12, (int)($_GET['month'] ?? date('n'))));
 $year = max(2000, min(2100, (int)($_GET['year'] ?? date('Y'))));
 $isExport = (($_GET['export'] ?? '') === 'csv');
+$storeRoles = ['manager_toko', 'pegawai_pos', 'pegawai_non_pos'];
+$kitchenRoles = ['manager_dapur', 'pegawai_dapur'];
+
+function role_flags($role, $storeRoles, $kitchenRoles) {
+  $role = (string) $role;
+  return [
+    'is_store' => in_array($role, $storeRoles, true),
+    'is_kitchen' => in_array($role, $kitchenRoles, true),
+  ];
+}
+
+$unitFilter = $_GET['unit'] ?? 'all';
+if (!in_array($unitFilter, ['all', 'store', 'kitchen'], true)) {
+  $unitFilter = 'all';
+}
 
 $branchId = inventory_active_branch_id();
 $activeBranch = inventory_active_branch();
@@ -190,6 +205,7 @@ if ($mode === 'detail' && $employeeIds && preg_match('/^\d{4}-\d{2}-\d{2}$/', $f
         $rows[] = [
           'date' => $date,
           'name' => $emp['name'],
+          'role' => ($emp['role'] ?? ''),
           'start_time' => $startTime,
           'end_time' => $endTime,
           'grace_minutes' => $grace,
@@ -212,6 +228,13 @@ if ($mode === 'detail' && $employeeIds && preg_match('/^\d{4}-\d{2}-\d{2}$/', $f
       }
     }
   }
+}
+
+if ($unitFilter !== 'all') {
+  $rows = array_values(array_filter($rows, function ($r) use ($unitFilter, $storeRoles, $kitchenRoles) {
+    $flags = role_flags($r['role'] ?? '', $storeRoles, $kitchenRoles);
+    return $unitFilter === 'store' ? $flags['is_store'] : $flags['is_kitchen'];
+  }));
 }
 
 if ($mode === 'monthly_summary' && $employeeIds) {
@@ -256,6 +279,7 @@ if ($mode === 'monthly_summary' && $employeeIds) {
     foreach ($selectedEmployees as $emp) {
       $summary = [
         'name' => $emp['name'],
+        'role' => ($emp['role'] ?? ''),
         'total_days' => count($dates),
         'present_count' => 0,
         'missing_checkin_count' => 0,
@@ -329,13 +353,21 @@ if ($mode === 'monthly_summary' && $employeeIds) {
   }
 }
 
+if ($unitFilter !== 'all') {
+  $summaryRows = array_values(array_filter($summaryRows, function ($r) use ($unitFilter, $storeRoles, $kitchenRoles) {
+    $flags = role_flags($r['role'] ?? '', $storeRoles, $kitchenRoles);
+    return $unitFilter === 'store' ? $flags['is_store'] : $flags['is_kitchen'];
+  }));
+}
+
 if ($isExport && $mode === 'detail') {
   header('Content-Type: text/csv; charset=utf-8');
   header('Content-Disposition: attachment; filename="rekap-absensi-' . $from . '-sd-' . $to . '.csv"');
   $out = fopen('php://output', 'w');
-  fputcsv($out, ['Tanggal', 'Pegawai', 'Jam Masuk', 'Jam Pulang', 'Grace', 'Window Absen Datang', 'Status Masuk', 'Telat (menit)', 'Early (menit)', 'Lembur Sebelum (menit)', 'Status Pulang', 'Pulang Cepat (menit)', 'Alasan Pulang Cepat', 'Lembur Sesudah (menit)', 'Work Minutes']);
+  fputcsv($out, ['Tanggal', 'Pegawai', 'Pegawai Toko', 'Pegawai Dapur', 'Jam Masuk', 'Jam Pulang', 'Grace', 'Window Absen Datang', 'Status Masuk', 'Telat (menit)', 'Early (menit)', 'Lembur Sebelum (menit)', 'Status Pulang', 'Pulang Cepat (menit)', 'Alasan Pulang Cepat', 'Lembur Sesudah (menit)', 'Work Minutes']);
   foreach ($rows as $r) {
-    fputcsv($out, [$r['date'],$r['name'],$r['start_time'],$r['end_time'],$r['grace_minutes'],$r['window_minutes'],$r['status_in'],$r['late_minutes'],$r['early_in_minutes'],$r['overtime_before_minutes'],$r['status_out'],$r['early_minutes'],$r['early_checkout_reason'],$r['overtime_after_minutes'],$r['work_minutes']]);
+    $flags = role_flags($r['role'] ?? '', $storeRoles, $kitchenRoles);
+    fputcsv($out, [$r['date'],$r['name'],$flags['is_store'] ? 'Ya' : '-',$flags['is_kitchen'] ? 'Ya' : '-',$r['start_time'],$r['end_time'],$r['grace_minutes'],$r['window_minutes'],$r['status_in'],$r['late_minutes'],$r['early_in_minutes'],$r['overtime_before_minutes'],$r['status_out'],$r['early_minutes'],$r['early_checkout_reason'],$r['overtime_after_minutes'],$r['work_minutes']]);
   }
   fclose($out);
   exit;
@@ -345,9 +377,10 @@ if ($isExport && $mode === 'monthly_summary') {
   header('Content-Type: text/csv; charset=utf-8');
   header('Content-Disposition: attachment; filename="rekap-bulanan-' . sprintf('%04d-%02d', $year, $month) . '.csv"');
   $out = fopen('php://output', 'w');
-  fputcsv($out, ['Pegawai', 'Total Hari', 'Hadir', 'Tidak Absen Datang', 'Tidak Absen Pulang', 'Telat (x)', 'Total Menit Telat', 'Pulang Cepat (x)', 'Total Menit Pulang Cepat', 'Lembur Sebelum (menit)', 'Lembur Sesudah (menit)', 'OFF', 'Jadwal Belum Diatur']);
+  fputcsv($out, ['Pegawai', 'Pegawai Toko', 'Pegawai Dapur', 'Total Hari', 'Hadir', 'Tidak Absen Datang', 'Tidak Absen Pulang', 'Telat (x)', 'Total Menit Telat', 'Pulang Cepat (x)', 'Total Menit Pulang Cepat', 'Lembur Sebelum (menit)', 'Lembur Sesudah (menit)', 'OFF', 'Jadwal Belum Diatur']);
   foreach ($summaryRows as $r) {
-    fputcsv($out, [$r['name'],$r['total_days'],$r['present_count'],$r['missing_checkin_count'],$r['missing_checkout_count'],$r['late_count'],$r['late_minutes'],$r['early_leave_count'],$r['early_leave_minutes'],$r['overtime_before_minutes'],$r['overtime_after_minutes'],$r['off_count'],$r['unscheduled_count']]);
+    $flags = role_flags($r['role'] ?? '', $storeRoles, $kitchenRoles);
+    fputcsv($out, [$r['name'],$flags['is_store'] ? 'Ya' : '-',$flags['is_kitchen'] ? 'Ya' : '-',$r['total_days'],$r['present_count'],$r['missing_checkin_count'],$r['missing_checkout_count'],$r['late_count'],$r['late_minutes'],$r['early_leave_count'],$r['early_leave_minutes'],$r['overtime_before_minutes'],$r['overtime_after_minutes'],$r['off_count'],$r['unscheduled_count']]);
   }
   fclose($out);
   exit;
@@ -404,6 +437,14 @@ $sidebarHtml = ob_get_clean();
               <?php endforeach; ?>
             </select>
           </div>
+          <div class="row">
+            <label>Unit</label>
+            <select name="unit">
+              <option value="all" <?php echo $unitFilter === 'all' ? 'selected' : ''; ?>>Semua</option>
+              <option value="store" <?php echo $unitFilter === 'store' ? 'selected' : ''; ?>>Toko</option>
+              <option value="kitchen" <?php echo $unitFilter === 'kitchen' ? 'selected' : ''; ?>>Dapur</option>
+            </select>
+          </div>
           <?php if ($mode === 'detail'): ?>
             <div class="row">
               <label>Status Masuk</label>
@@ -414,18 +455,19 @@ $sidebarHtml = ob_get_clean();
           <?php endif; ?>
           <button class="btn" type="submit">Filter</button>
           <?php if ($mode === 'detail'): ?>
-            <a class="btn" href="<?php echo e(base_url('admin/attendance.php?mode=detail&from=' . urlencode($from) . '&to=' . urlencode($to) . '&user_id=' . (int) $userId . '&status=' . urlencode($statusFilter) . '&export=csv')); ?>">Export CSV</a>
+            <a class="btn" href="<?php echo e(base_url('admin/attendance.php?mode=detail&from=' . urlencode($from) . '&to=' . urlencode($to) . '&user_id=' . (int) $userId . '&status=' . urlencode($statusFilter) . '&unit=' . urlencode($unitFilter) . '&export=csv')); ?>">Export CSV</a>
           <?php else: ?>
-            <a class="btn" href="<?php echo e(base_url('admin/attendance.php?mode=monthly_summary&month=' . (int)$month . '&year=' . (int)$year . '&user_id=' . (int)$userId . '&export=csv')); ?>">Export CSV</a>
+            <a class="btn" href="<?php echo e(base_url('admin/attendance.php?mode=monthly_summary&month=' . (int)$month . '&year=' . (int)$year . '&user_id=' . (int)$userId . '&unit=' . urlencode($unitFilter) . '&export=csv')); ?>">Export CSV</a>
           <?php endif; ?>
         </form>
 
         <?php if ($mode === 'detail'): ?>
           <table class="table">
-            <thead><tr><th>Tanggal</th><th>Pegawai</th><th>Absen Masuk</th><th>Status Masuk</th><th>Absen Pulang</th><th>Foto Masuk</th><th>Foto Pulang</th></tr></thead>
+            <thead><tr><th>Tanggal</th><th>Pegawai</th><th>Pegawai Toko</th><th>Pegawai Dapur</th><th>Absen Masuk</th><th>Status Masuk</th><th>Absen Pulang</th><th>Foto Masuk</th><th>Foto Pulang</th></tr></thead>
             <tbody>
             <?php foreach ($rows as $r): ?>
               <?php
+                $flags = role_flags($r['role'] ?? '', $storeRoles, $kitchenRoles);
                 $statusInLower = strtolower((string)$r['status_in']);
                 $statusInStyle = 'background:rgba(148,163,184,.18);color:#cbd5e1;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;display:inline-block';
                 if ($statusInLower === 'tepat') {
@@ -445,6 +487,8 @@ $sidebarHtml = ob_get_clean();
               <tr>
                 <td><?php echo e($r['date']); ?></td>
                 <td><?php echo e($r['name']); ?></td>
+                <td><?php echo $flags['is_store'] ? 'Ya' : '-'; ?></td>
+                <td><?php echo $flags['is_kitchen'] ? 'Ya' : '-'; ?></td>
                 <td><?php echo e($checkinDisplay); ?></td>
                 <td><span style="<?php echo e($statusInStyle); ?>"><?php echo e((string)$r['status_in']); ?></span></td>
                 <td><?php echo e($checkoutDisplay); ?></td>
@@ -456,11 +500,12 @@ $sidebarHtml = ob_get_clean();
           </table>
         <?php else: ?>
           <table class="table">
-            <thead><tr><th>Pegawai</th><th>Total Hari</th><th>Hadir</th><th>Tidak Absen Datang</th><th>Tidak Absen Pulang</th><th>Telat (x)</th><th>Total Menit Telat</th><th>Pulang Cepat (x)</th><th>Total Menit Pulang Cepat</th><th>Lembur Sebelum</th><th>Lembur Sesudah</th><th>OFF</th><th>Jadwal Belum Diatur</th></tr></thead>
+            <thead><tr><th>Pegawai</th><th>Pegawai Toko</th><th>Pegawai Dapur</th><th>Total Hari</th><th>Hadir</th><th>Tidak Absen Datang</th><th>Tidak Absen Pulang</th><th>Telat (x)</th><th>Total Menit Telat</th><th>Pulang Cepat (x)</th><th>Total Menit Pulang Cepat</th><th>Lembur Sebelum</th><th>Lembur Sesudah</th><th>OFF</th><th>Jadwal Belum Diatur</th></tr></thead>
             <tbody>
             <?php foreach ($summaryRows as $r): ?>
+              <?php $flags = role_flags($r['role'] ?? '', $storeRoles, $kitchenRoles); ?>
               <tr>
-                <td><?php echo e($r['name']); ?></td><td><?php echo e((string)$r['total_days']); ?></td><td><?php echo e((string)$r['present_count']); ?></td><td><?php echo e((string)$r['missing_checkin_count']); ?></td><td><?php echo e((string)$r['missing_checkout_count']); ?></td><td><?php echo e((string)$r['late_count']); ?></td><td><?php echo e((string)$r['late_minutes']); ?></td><td><?php echo e((string)$r['early_leave_count']); ?></td><td><?php echo e((string)$r['early_leave_minutes']); ?></td><td><?php echo e((string)$r['overtime_before_minutes']); ?></td><td><?php echo e((string)$r['overtime_after_minutes']); ?></td><td><?php echo e((string)$r['off_count']); ?></td><td><?php echo e((string)$r['unscheduled_count']); ?></td>
+                <td><?php echo e($r['name']); ?></td><td><?php echo $flags['is_store'] ? 'Ya' : '-'; ?></td><td><?php echo $flags['is_kitchen'] ? 'Ya' : '-'; ?></td><td><?php echo e((string)$r['total_days']); ?></td><td><?php echo e((string)$r['present_count']); ?></td><td><?php echo e((string)$r['missing_checkin_count']); ?></td><td><?php echo e((string)$r['missing_checkout_count']); ?></td><td><?php echo e((string)$r['late_count']); ?></td><td><?php echo e((string)$r['late_minutes']); ?></td><td><?php echo e((string)$r['early_leave_count']); ?></td><td><?php echo e((string)$r['early_leave_minutes']); ?></td><td><?php echo e((string)$r['overtime_before_minutes']); ?></td><td><?php echo e((string)$r['overtime_after_minutes']); ?></td><td><?php echo e((string)$r['off_count']); ?></td><td><?php echo e((string)$r['unscheduled_count']); ?></td>
               </tr>
             <?php endforeach; ?>
             </tbody>
