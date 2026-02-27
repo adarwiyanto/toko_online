@@ -102,7 +102,7 @@ function inventory_ensure_tables(): void {
     code VARCHAR(50) NULL,
     name VARCHAR(120) NOT NULL,
     address TEXT NULL,
-    branch_type ENUM('toko','dapur') NOT NULL DEFAULT 'toko',
+    branch_type ENUM('toko','dapur','adm') NOT NULL DEFAULT 'toko',
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
@@ -118,8 +118,9 @@ function inventory_ensure_tables(): void {
       db()->exec("ALTER TABLE branches ADD COLUMN address TEXT NULL AFTER name");
     }
     if (!inventory_column_exists('branches', 'branch_type')) {
-      db()->exec("ALTER TABLE branches ADD COLUMN branch_type ENUM('toko','dapur') NOT NULL DEFAULT 'toko' AFTER address");
+      db()->exec("ALTER TABLE branches ADD COLUMN branch_type ENUM('toko','dapur','adm') NOT NULL DEFAULT 'toko' AFTER address");
     }
+    db()->exec("ALTER TABLE branches MODIFY branch_type ENUM('toko','dapur','adm') NOT NULL DEFAULT 'toko'");
     if (!inventory_column_exists('branches', 'is_active')) {
       db()->exec("ALTER TABLE branches ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER branch_type");
     }

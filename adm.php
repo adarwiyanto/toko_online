@@ -24,7 +24,7 @@ if ($me && !in_array($me['role'] ?? '', ['admin', 'owner'], true)) {
   if (in_array($role, ['pegawai_dapur', 'manager_dapur'], true) && !empty($_SESSION['kitchen_attendance_gate_pending'])) {
     redirect(base_url('pos/attendance_confirm.php'));
   }
-  if (in_array($role, ['pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true) && !empty($_SESSION['pos_attendance_gate_pending'])) {
+  if (in_array($role, ['adm', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true) && !empty($_SESSION['pos_attendance_gate_pending'])) {
     redirect(base_url('pos/attendance_confirm.php'));
   }
   if ($role === 'pegawai_dapur') {
@@ -62,7 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       redirect(base_url('admin/dashboard.php'));
     }
     rate_limit_clear('admin_login', $rateId);
-    if (in_array($role, ['pegawai_dapur', 'manager_dapur', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true)) {
+    if (in_array($role, ['adm', 'pegawai_dapur', 'manager_dapur', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true)) {
       redirect(base_url('pos/attendance_confirm.php'));
     }
     redirect(base_url('pos/index.php')); 

@@ -16,7 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $branchType = (string)($_POST['branch_type'] ?? 'toko');
   $isActive = (int)($_POST['is_active'] ?? 1) === 1 ? 1 : 0;
 
-  if ($branchType !== 'toko' && $branchType !== 'dapur') {
+  if (!in_array($branchType, ['toko', 'dapur', 'adm'], true)) {
     $branchType = 'toko';
   }
 
@@ -145,7 +145,7 @@ $flash = inventory_get_flash();
           <input type="hidden" name="action" value="create">
           <div class="row"><label>Kode Cabang</label><input name="code" placeholder="Opsional"></div>
           <div class="row"><label>Nama Cabang</label><input name="name" required></div>
-          <div class="row"><label>Tipe Cabang</label><select name="branch_type"><option value="toko">Toko</option><option value="dapur">Dapur</option></select></div>
+          <div class="row"><label>Tipe Cabang</label><select name="branch_type"><option value="toko">Toko</option><option value="dapur">Dapur</option><option value="adm">ADM</option></select></div>
           <div class="row"><label>Status</label><select name="is_active"><option value="1">Aktif</option><option value="0">Nonaktif</option></select></div>
           <div class="row" style="grid-column:span 2"><label>Alamat</label><textarea name="address" rows="2" placeholder="Opsional"></textarea></div>
           <div class="row" style="align-self:end"><button class="btn" type="submit">Simpan Cabang</button></div>
@@ -172,6 +172,7 @@ $flash = inventory_get_flash();
                   <select name="branch_type">
                     <option value="toko" <?php echo ($b['branch_type'] ?? 'toko')==='toko'?'selected':''; ?>>Toko</option>
                     <option value="dapur" <?php echo ($b['branch_type'] ?? '')==='dapur'?'selected':''; ?>>Dapur</option>
+                    <option value="adm" <?php echo ($b['branch_type'] ?? '')==='adm'?'selected':''; ?>>ADM</option>
                   </select>
                 </td>
                 <td>
