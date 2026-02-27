@@ -53,13 +53,14 @@ if (in_array($role, ['owner', 'admin'], true)) {
     <?php if (in_array($role, ['owner', 'admin'], true)): ?>
       <form method="get">
         <input type="hidden" name="set_branch_context" value="1">
-        <select name="branch_id" onchange="this.form.submit()" style="width:100%">
+        <select name="branch_id" style="width:100%">
           <?php foreach ($branchOptions as $bo): ?>
             <option value="<?php echo e((string)$bo['id']); ?>" <?php echo (int)$bo['id'] === $activeBranchId ? 'selected' : ''; ?>>
               <?php echo e((string)$bo['name']); ?> (<?php echo e((string)$bo['branch_type']); ?>)
             </option>
           <?php endforeach; ?>
         </select>
+        <button type="submit" class="btn" style="width:100%;margin-top:8px">Go</button>
       </form>
     <?php else: ?>
       <div style="font-weight:600"><?php echo e((string)($activeBranch['name'] ?? '-')); ?></div>
