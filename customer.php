@@ -130,7 +130,7 @@ if ($customer) {
 $rewards = db()->query("
   SELECT lr.id, lr.points_required, p.name
   FROM loyalty_rewards lr
-  JOIN products p ON p.id = lr.product_id
+  JOIN inv_products p ON p.id = lr.inv_product_id
   ORDER BY lr.points_required ASC
 ")->fetchAll();
 

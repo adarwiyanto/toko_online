@@ -15,16 +15,16 @@ $remainderMode = (string)setting('loyalty_remainder_mode', 'discard');
 $remainderMode = in_array($remainderMode, ['discard', 'carry'], true) ? $remainderMode : 'discard';
 $err = '';
 
-$products = db()->query("SELECT id, name FROM products ORDER BY name ASC")->fetchAll();
+$products = db()->query("SELECT id, name FROM inv_products WHERE is_deleted=0 AND is_hidden=0 ORDER BY name ASC")->fetchAll();
 $productsById = [];
 foreach ($products as $product) {
   $productsById[(int)$product['id']] = $product;
 }
 
 $rewards = db()->query("
-  SELECT lr.id, lr.product_id, lr.points_required, p.name
+  SELECT lr.id, lr.inv_product_id, lr.points_required, p.name
   FROM loyalty_rewards lr
-  JOIN products p ON p.id = lr.product_id
+  JOIN inv_products p ON p.id = lr.inv_product_id
   ORDER BY lr.points_required ASC
 ")->fetchAll();
 
@@ -53,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $err = 'Poin reward harus lebih dari 0.';
     } else {
       $stmt = db()->prepare("
-        INSERT INTO loyalty_rewards (product_id, points_required)
+        INSERT INTO loyalty_rewards (inv_product_id, points_required)
         VALUES (?, ?)
         ON DUPLICATE KEY UPDATE points_required = VALUES(points_required)
       ");

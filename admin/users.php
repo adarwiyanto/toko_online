@@ -38,6 +38,7 @@ function role_branch_type(?string $role): ?string {
   $role = (string)$role;
   if (in_array($role, ['pegawai_pos','pegawai_non_pos','manager_toko'], true)) return 'toko';
   if (in_array($role, ['pegawai_dapur','manager_dapur'], true)) return 'dapur';
+  if ($role === 'admin') return 'adm';
   return null;
 }
 
@@ -308,6 +309,7 @@ $mailCfg = mail_settings();
                     'owner' => 'owner',
                     'superadmin' => 'owner',
                     'admin' => 'admin',
+                    'adm' => 'admin',
                     'pegawai_pos' => 'pegawai_pos',
                     'pegawai_non_pos' => 'pegawai_non_pos',
                     'manager_toko' => 'manager_toko',
@@ -315,7 +317,7 @@ $mailCfg = mail_settings();
                     'manager_dapur' => 'manager_dapur',
                   ];
                   $roleValue = (string)($u['role'] ?? '');
-                  $roleValueNormalized = $roleValue === 'superadmin' ? 'owner' : $roleValue;
+                  $roleValueNormalized = $roleValue === 'superadmin' ? 'owner' : ($roleValue === 'adm' ? 'admin' : $roleValue);
                   $roleLabel = $roleLabels[$roleValue] ?? ($roleValue !== '' ? $roleValue : 'pegawai_pos');
                 ?>
                 <tr>

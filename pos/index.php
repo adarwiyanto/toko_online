@@ -6,6 +6,7 @@ require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/attendance.php';
 require_once __DIR__ . '/../lib/upload_secure.php';
+require_once __DIR__ . '/../admin/inventory_helpers.php';
 
 start_secure_session();
 require_login();
@@ -15,6 +16,7 @@ ensure_sales_transaction_code_column();
 ensure_sales_user_column();
 ensure_employee_roles();
 ensure_employee_attendance_tables();
+inventory_ensure_tables();
 
 $appName = app_config()['app']['name'];
 $storeName = setting('store_name', $appName);
@@ -47,7 +49,7 @@ $hasCheckoutToday = !empty($attendanceToday['checkout_time']);
 $attendanceConfirmed = false;
 if (in_array($role, ['pegawai_dapur', 'manager_dapur'], true)) {
   $attendanceConfirmed = !empty($_SESSION['kitchen_attendance_confirmed']);
-} elseif (in_array($role, ['pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true)) {
+} elseif (in_array($role, ['adm', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true)) {
   $attendanceConfirmed = !empty($_SESSION['pos_attendance_confirmed']);
 }
 
@@ -302,6 +304,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $orderStatus = $canProcessPayment ? 'completed' : 'pending_payment';
         $stmt = $db->prepare("UPDATE orders SET status=?, completed_at=NOW() WHERE id=?");
         $stmt->execute([$orderStatus, $orderId]);
+        if ($orderStatus === 'completed') {
+          $webBranchId = inventory_web_sales_branch_id();
+          deduct_stok_barang_for_order_if_needed($orderId, $webBranchId);
+        }
         $stmt = $db->prepare("
           SELECT c.id, c.loyalty_remainder
           FROM orders o

@@ -8,10 +8,9 @@ require_once __DIR__ . '/core/csrf.php';
 require_once __DIR__ . '/core/customer_auth.php';
 
 try {
-  ensure_products_category_column();
-  ensure_products_best_seller_column();
+  ensure_inv_stocks_table();
   ensure_landing_order_tables();
-  $products = db()->query("SELECT * FROM products ORDER BY is_best_seller DESC, id DESC")->fetchAll();
+  $products = db()->query("SELECT id, sku, name, unit, sell_price AS price, image_path FROM inv_products WHERE is_deleted=0 AND is_hidden=0 ORDER BY name ASC")->fetchAll();
 } catch (Throwable $e) {
   header('Location: install/index.php');
   exit;
@@ -60,11 +59,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
     }
 
+    $branchId = web_sales_branch_id();
+    if ($branchId <= 0 && in_array($action, ['add', 'inc', 'checkout'], true)) {
+      throw new Exception('Cabang penjualan web belum diatur.');
+    }
+
     if ($action === 'add') {
-      $cart[$productId] = ($cart[$productId] ?? 0) + 1;
+      $nextQty = ($cart[$productId] ?? 0) + 1;
+      $available = stock_get_qty($branchId, $productId);
+      if ($available < $nextQty) {
+        throw new Exception('Stok tidak cukup.');
+      }
+      $cart[$productId] = $nextQty;
       $notice = 'Produk ditambahkan ke keranjang.';
     } elseif ($action === 'inc') {
-      $cart[$productId] = ($cart[$productId] ?? 1) + 1;
+      $nextQty = ($cart[$productId] ?? 1) + 1;
+      $available = stock_get_qty($branchId, $productId);
+      if ($available < $nextQty) {
+        throw new Exception('Stok tidak cukup.');
+      }
+      $cart[$productId] = $nextQty;
       $notice = 'Jumlah produk ditambah.';
     } elseif ($action === 'dec') {
       $current = (int)($cart[$productId] ?? 1);
@@ -111,11 +125,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
 
       $orderCode = 'ORD-' . date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
-      $stmt = $db->prepare("INSERT INTO orders (order_code, customer_id, status) VALUES (?,?, 'pending')");
-      $stmt->execute([$orderCode, $customerId]);
+      $stmt = $db->prepare("INSERT INTO orders (order_code, customer_id, branch_id, status) VALUES (?,?,?, 'processing')");
+      $stmt->execute([$orderCode, $customerId, $branchId]);
       $orderId = (int)$db->lastInsertId();
 
-      $stmt = $db->prepare("INSERT INTO order_items (order_id, product_id, qty, price_each, subtotal) VALUES (?,?,?,?,?)");
+      $stmt = $db->prepare("INSERT INTO order_items (order_id, inv_product_id, qty, price_each, subtotal) VALUES (?,?,?,?,?)");
       $orderTotal = 0;
       foreach ($cart as $pid => $qty) {
         if (empty($productsById[$pid])) {
@@ -127,9 +141,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $price = (float)$productsById[$pid]['price'];
         $subtotal = $price * $qty;
+
+        $current = stock_get_qty($branchId, (int)$pid);
+        if ($current < $qty) {
+          throw new Exception('Stok tidak cukup.');
+        }
+
         $stmt->execute([$orderId, (int)$pid, $qty, $price, $subtotal]);
+        stock_add_qty($branchId, (int)$pid, -1 * (float)$qty);
         $orderTotal += $subtotal;
       }
+
+      $stmtDone = $db->prepare("UPDATE orders SET stock_deducted_at=NOW() WHERE id=?");
+      $stmtDone->execute([$orderId]);
 
       $db->commit();
       $cart = [];
@@ -201,7 +225,6 @@ $loginButton = '<div style="display:flex;gap:8px;flex-wrap:wrap">' . implode('',
   ?>
     <div class="grid cols-2 landing-products" style="margin-top:16px">
       <?php foreach ($products as $p): ?>
-        <?php $categoryLabel = $p['category'] ?: 'Tanpa kategori'; ?>
         <?php if ($landingOrderEnabled): ?>
           <form method="post" class="landing-product-form">
             <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
@@ -217,10 +240,8 @@ $loginButton = '<div style="display:flex;gap:8px;flex-wrap:wrap">' . implode('',
                 <span class="landing-product-info">
                   <span class="landing-product-name"><?php echo e($p['name']); ?></span>
                   <span class="landing-product-meta">
-                    <span><?php echo e($categoryLabel); ?></span>
-                    <?php if (!empty($p['is_best_seller'])): ?>
-                      <span class="landing-product-highlight">Best Seller</span>
-                    <?php endif; ?>
+                    <span><?php echo e($p['sku'] ?: '-'); ?></span>
+                    <span><?php echo e($p['unit'] ?: '-'); ?></span>
                   </span>
                   <span class="badge">Rp <?php echo e(number_format((float)$p['price'], 0, '.', ',')); ?></span>
                 </span>
@@ -239,10 +260,8 @@ $loginButton = '<div style="display:flex;gap:8px;flex-wrap:wrap">' . implode('',
                 <span class="landing-product-info">
                   <span class="landing-product-name"><?php echo e($p['name']); ?></span>
                   <span class="landing-product-meta">
-                    <span><?php echo e($categoryLabel); ?></span>
-                    <?php if (!empty($p['is_best_seller'])): ?>
-                      <span class="landing-product-highlight">Best Seller</span>
-                    <?php endif; ?>
+                    <span><?php echo e($p['sku'] ?: '-'); ?></span>
+                    <span><?php echo e($p['unit'] ?: '-'); ?></span>
                   </span>
                   <span class="badge">Rp <?php echo e(number_format((float)$p['price'], 0, '.', ',')); ?></span>
                 </span>

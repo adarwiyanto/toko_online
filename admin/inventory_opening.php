@@ -49,12 +49,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       } else {
         $stmtLedger->execute([$branchId, $pid, 'OPENING', $openingId, 0, abs($qty), 'Stock awal', $now]);
       }
+      stock_set_qty($branchId, (int)$pid, (float)$qty);
     }
     db()->commit();
-    inventory_set_flash('ok', 'Stock awal berhasil diposting ke ledger.');
+    inventory_set_flash('ok', 'Stok awal berhasil diposting. Stok realtime diperbarui.');
   } catch (Throwable $e) {
     db()->rollBack();
-    inventory_set_flash('error', 'Gagal menyimpan stock awal.');
+    inventory_set_flash('error', 'Gagal menyimpan stok awal.');
   }
   redirect(base_url('admin/inventory_opening.php'));
 }
@@ -71,7 +72,7 @@ $customCss = setting('custom_css', '');
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Stock Awal</title>
+  <title>Stok Awal</title>
   <link rel="icon" href="<?php echo e(favicon_url()); ?>">
   <link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>">
   <style><?php echo $customCss; ?></style>
@@ -82,13 +83,13 @@ $customCss = setting('custom_css', '');
   <div class="main">
     <div class="topbar">
       <button class="btn" data-toggle-sidebar type="button">Menu</button>
-      <span style="color:#fff;font-weight:700">Produk & Inventory / Stock Awal</span>
+      <span style="color:#fff;font-weight:700">Produk & Inventory / Stok Awal</span>
     </div>
     <div class="content">
-      <?php if ($openingCount > 0): ?><div class="card" style="margin-bottom:12px">Perhatian: Stock awal sudah pernah diinput sebelumnya (<?php echo e((string)$openingCount); ?> dokumen).</div><?php endif; ?>
+      <?php if ($openingCount > 0): ?><div class="card" style="margin-bottom:12px">Perhatian: Stok awal sudah pernah diinput sebelumnya (<?php echo e((string)$openingCount); ?> dokumen).</div><?php endif; ?>
       <?php if ($flash): ?><div class="card" style="margin-bottom:12px"><?php echo e($flash['message']); ?></div><?php endif; ?>
       <div class="card">
-        <h3 style="margin-top:0">Input Stock Awal</h3><p>Cabang aktif: <strong><?php echo e((string)($branch['name'] ?? '-')); ?></strong></p>
+        <h3 style="margin-top:0">Input Stok Awal</h3><p>Cabang aktif: <strong><?php echo e((string)($branch['name'] ?? '-')); ?></strong></p>
         <form method="post">
           <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
           <table class="table">
@@ -104,7 +105,7 @@ $customCss = setting('custom_css', '');
               <?php endforeach; ?>
             </tbody>
           </table>
-          <button class="btn" type="submit">Simpan Stock Awal</button>
+          <button class="btn" type="submit">Simpan Stok Awal</button>
         </form>
       </div>
     </div>

@@ -143,7 +143,7 @@ function login_attempt(string $username, string $password): bool {
     $_SESSION['kitchen_attendance_gate_pending'] = true;
     unset($_SESSION['kitchen_attendance_confirmed']);
   }
-  if (in_array((string)($u['role'] ?? ''), ['pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true)) {
+  if (in_array((string)($u['role'] ?? ''), ['adm', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true)) {
     $_SESSION['pos_attendance_gate_pending'] = true;
     unset($_SESSION['pos_attendance_confirmed']);
   }

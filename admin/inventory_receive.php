@@ -51,6 +51,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $up->execute([$qtyReceived, $note !== '' ? $note : null, $itemId]);
       if ($qtyReceived > 0) {
         $ledger->execute([$branchId, (int)$item['product_id'], $transferId, $qtyReceived, 'Penerimaan dari dapur', $now]);
+        $productId = ensure_products_row_from_inv_product((int)$item['product_id']);
+        if ($productId > 0) {
+          stok_barang_add_qty($branchId, $productId, $qtyReceived);
+        }
       }
     }
 

@@ -15,7 +15,7 @@ $me = current_user();
 $role = (string)($me['role'] ?? '');
 $isKitchenRole = in_array($role, ['pegawai_dapur', 'manager_dapur'], true);
 $isAdminRole = $role === 'admin';
-$isPosRole = in_array($role, ['pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true);
+$isPosRole = in_array($role, ['adm', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true);
 
 if (!$isKitchenRole && !$isAdminRole && !$isPosRole) {
   redirect(base_url('pos/index.php'));

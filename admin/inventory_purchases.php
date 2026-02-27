@@ -68,10 +68,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     foreach ($items as $item) {
       $stmtItem->execute([$purchaseId, $item['product_id'], $item['qty'], $item['buy_price'], $item['line_total']]);
       $stmtLedger->execute([$branchId, $item['product_id'], $purchaseId, $item['qty'], $now]);
+      stock_add_qty($branchId, (int)$item['product_id'], (float)$item['qty']);
     }
 
     db()->commit();
-    inventory_set_flash('ok', 'Pembelian berhasil diposting ke stock ledger.');
+    inventory_set_flash('ok', 'Pembelian berhasil diposting. Stok realtime diperbarui.');
   } catch (Throwable $e) {
     db()->rollBack();
     inventory_set_flash('error', 'Gagal menyimpan pembelian.');

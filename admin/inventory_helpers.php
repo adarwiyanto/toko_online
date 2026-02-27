@@ -6,7 +6,6 @@ require_once __DIR__ . '/../core/security.php';
 
 /**
  * Inventory module helper (Produk & Inventory).
- * Modul ini berdiri sendiri dan hanya menghitung stok dari inv_stock_ledger.
  */
 function require_role(array $roles): void {
   require_login();
@@ -58,6 +57,23 @@ function inventory_constraint_exists(string $table, string $constraint): bool {
   return (bool)$stmt->fetchColumn();
 }
 
+function inventory_index_exists(string $table, string $indexName): bool {
+  $sql = "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1";
+  $stmt = db()->prepare($sql);
+  $stmt->execute([$table, $indexName]);
+  return (bool)$stmt->fetchColumn();
+}
+
+function inventory_create_index_if_missing(string $sqlCreate, string $table, string $indexName): void {
+  try {
+    if (!inventory_index_exists($table, $indexName)) {
+      db()->exec($sqlCreate);
+    }
+  } catch (Throwable $e) {
+    // Diamkan agar halaman tidak gagal total.
+  }
+}
+
 function inventory_is_duplicate_key(Throwable $e): bool {
   if (!($e instanceof PDOException)) {
     return false;
@@ -86,7 +102,7 @@ function inventory_ensure_tables(): void {
     code VARCHAR(50) NULL,
     name VARCHAR(120) NOT NULL,
     address TEXT NULL,
-    branch_type ENUM('toko','dapur') NOT NULL DEFAULT 'toko',
+    branch_type ENUM('toko','dapur','adm') NOT NULL DEFAULT 'toko',
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
@@ -102,8 +118,9 @@ function inventory_ensure_tables(): void {
       db()->exec("ALTER TABLE branches ADD COLUMN address TEXT NULL AFTER name");
     }
     if (!inventory_column_exists('branches', 'branch_type')) {
-      db()->exec("ALTER TABLE branches ADD COLUMN branch_type ENUM('toko','dapur') NOT NULL DEFAULT 'toko' AFTER address");
+      db()->exec("ALTER TABLE branches ADD COLUMN branch_type ENUM('toko','dapur','adm') NOT NULL DEFAULT 'toko' AFTER address");
     }
+    db()->exec("ALTER TABLE branches MODIFY branch_type ENUM('toko','dapur','adm') NOT NULL DEFAULT 'toko'");
     if (!inventory_column_exists('branches', 'is_active')) {
       db()->exec("ALTER TABLE branches ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER branch_type");
     }
@@ -316,6 +333,218 @@ function inventory_ensure_tables(): void {
   } catch (Throwable $e) {
     // Safety net only.
   }
+
+  inventory_create_index_if_missing(
+    "CREATE INDEX idx_inv_stock_ledger_branch_product_created ON inv_stock_ledger (branch_id, product_id, created_at)",
+    'inv_stock_ledger',
+    'idx_inv_stock_ledger_branch_product_created'
+  );
+
+  inventory_create_index_if_missing(
+    "CREATE INDEX idx_inv_stock_ledger_branch_product ON inv_stock_ledger (branch_id, product_id)",
+    'inv_stock_ledger',
+    'idx_inv_stock_ledger_branch_product'
+  );
+
+  try {
+    if (!inventory_constraint_exists('inv_stock_ledger', 'fk_inv_stock_ledger_branch')) {
+      db()->exec("ALTER TABLE inv_stock_ledger ADD CONSTRAINT fk_inv_stock_ledger_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT");
+    }
+  } catch (Throwable $e) {
+    // Diamkan bila gagal (engine/constraint existing data).
+  }
+
+  ensure_products_stok_barang_columns();
+  ensure_stok_barang_table();
+  ensure_orders_stock_deducted_column();
+}
+
+function ensure_products_stok_barang_columns(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+
+  try {
+    if (!inventory_column_exists('products', 'sku')) {
+      db()->exec("ALTER TABLE products ADD COLUMN sku VARCHAR(100) NULL AFTER id");
+    }
+    if (!inventory_column_exists('products', 'unit')) {
+      db()->exec("ALTER TABLE products ADD COLUMN unit VARCHAR(50) NULL AFTER name");
+    }
+    if (!inventory_column_exists('products', 'is_hidden_global')) {
+      db()->exec("ALTER TABLE products ADD COLUMN is_hidden_global TINYINT(1) NOT NULL DEFAULT 0 AFTER is_hidden");
+    }
+  } catch (Throwable $e) {
+    // Safety net only.
+  }
+
+  inventory_create_index_if_missing(
+    "CREATE INDEX idx_products_sku ON products (sku)",
+    'products',
+    'idx_products_sku'
+  );
+}
+
+function ensure_stok_barang_table(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+
+  db()->exec("CREATE TABLE IF NOT EXISTS stok_barang (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    branch_id INT NOT NULL,
+    product_id INT NOT NULL,
+    qty DECIMAL(18,3) NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_stok_barang (branch_id, product_id),
+    INDEX idx_stok_barang_branch (branch_id),
+    INDEX idx_stok_barang_product (product_id),
+    CONSTRAINT fk_stok_barang_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+    CONSTRAINT fk_stok_barang_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB");
+}
+
+function stok_barang_get_qty($branchId, $productId): float {
+  ensure_stok_barang_table();
+  $branchId = (int)$branchId;
+  $productId = (int)$productId;
+  if ($branchId <= 0 || $productId <= 0) {
+    return 0.0;
+  }
+  $stmt = db()->prepare("SELECT qty FROM stok_barang WHERE branch_id=? AND product_id=? LIMIT 1");
+  $stmt->execute([$branchId, $productId]);
+  $row = $stmt->fetch();
+  return (float)($row['qty'] ?? 0);
+}
+
+function stok_barang_set_qty($branchId, $productId, $qty): void {
+  ensure_stok_barang_table();
+  $branchId = (int)$branchId;
+  $productId = (int)$productId;
+  if ($branchId <= 0 || $productId <= 0) {
+    return;
+  }
+  $stmt = db()->prepare("INSERT INTO stok_barang (branch_id, product_id, qty) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE qty=VALUES(qty)");
+  $stmt->execute([$branchId, $productId, (float)$qty]);
+}
+
+function stok_barang_add_qty($branchId, $productId, $delta): void {
+  ensure_stok_barang_table();
+  $branchId = (int)$branchId;
+  $productId = (int)$productId;
+  if ($branchId <= 0 || $productId <= 0) {
+    return;
+  }
+  $stmt = db()->prepare("INSERT INTO stok_barang (branch_id, product_id, qty) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE qty = qty + VALUES(qty)");
+  $stmt->execute([$branchId, $productId, (float)$delta]);
+}
+
+function ensure_products_row_from_inv_product($invProductId): int {
+  ensure_products_stok_barang_columns();
+  $invProductId = (int)$invProductId;
+  if ($invProductId <= 0) {
+    return 0;
+  }
+  $stmtInv = db()->prepare("SELECT id, sku, name, unit FROM inv_products WHERE id=? LIMIT 1");
+  $stmtInv->execute([$invProductId]);
+  $inv = $stmtInv->fetch();
+  if (!$inv) {
+    return 0;
+  }
+
+  $skuRaw = trim((string)($inv['sku'] ?? ''));
+  if ($skuRaw !== '') {
+    $stmtP = db()->prepare("SELECT id FROM products WHERE sku=? LIMIT 1");
+    $stmtP->execute([$skuRaw]);
+    $found = $stmtP->fetch();
+    if ($found) {
+      return (int)$found['id'];
+    }
+  }
+
+  $skuInsert = $skuRaw !== '' ? $skuRaw : ('INV-' . $invProductId);
+  $stmtFallback = db()->prepare("SELECT id FROM products WHERE sku=? LIMIT 1");
+  $stmtFallback->execute([$skuInsert]);
+  $existing = $stmtFallback->fetch();
+  if ($existing) {
+    return (int)$existing['id'];
+  }
+
+  $stmtIns = db()->prepare("INSERT INTO products (sku, name, unit, is_hidden_global, created_at, updated_at) VALUES (?, ?, ?, 0, NOW(), NOW())");
+  $stmtIns->execute([
+    $skuInsert,
+    (string)($inv['name'] ?? ''),
+    (string)($inv['unit'] ?? ''),
+  ]);
+  return (int)db()->lastInsertId();
+}
+
+function ensure_orders_stock_deducted_column(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+  try {
+    if (!inventory_column_exists('orders', 'stock_deducted_at')) {
+      db()->exec("ALTER TABLE orders ADD COLUMN stock_deducted_at DATETIME NULL AFTER completed_at");
+    }
+  } catch (Throwable $e) {
+    // Safety net only.
+  }
+}
+
+function inventory_default_sales_branch_id(): int {
+  $stmt = db()->query("SELECT id FROM branches WHERE branch_type='toko' AND is_active=1 ORDER BY id ASC LIMIT 1");
+  $row = $stmt->fetch();
+  return (int)($row['id'] ?? 0);
+}
+
+function inventory_web_sales_branch_id(): int {
+  $saved = (int)setting('web_sales_branch_id', '0');
+  if ($saved > 0) {
+    $stmt = db()->prepare("SELECT id FROM branches WHERE id=? AND branch_type='toko' AND is_active=1 LIMIT 1");
+    $stmt->execute([$saved]);
+    if ($stmt->fetch()) {
+      return $saved;
+    }
+  }
+  $defaultId = inventory_default_sales_branch_id();
+  if ($defaultId > 0) {
+    set_setting('web_sales_branch_id', (string)$defaultId);
+  }
+  return $defaultId;
+}
+
+function deduct_stok_barang_for_order_if_needed(int $orderId, int $branchId): bool {
+  ensure_orders_stock_deducted_column();
+  ensure_inv_stocks_table();
+  if ($orderId <= 0 || $branchId <= 0) {
+    return false;
+  }
+
+  $stmtOrder = db()->prepare("SELECT id, stock_deducted_at FROM orders WHERE id=? FOR UPDATE");
+  $stmtOrder->execute([$orderId]);
+  $order = $stmtOrder->fetch();
+  if (!$order || !empty($order['stock_deducted_at'])) {
+    return false;
+  }
+
+  $stmtItems = db()->prepare("SELECT inv_product_id, SUM(qty) AS qty_sum FROM order_items WHERE order_id=? GROUP BY inv_product_id");
+  $stmtItems->execute([$orderId]);
+  foreach ($stmtItems->fetchAll() as $row) {
+    $pid = (int)($row['inv_product_id'] ?? 0);
+    $qty = (float)($row['qty_sum'] ?? 0);
+    if ($pid > 0 && abs($qty) > 0.0005) {
+      $current = stock_get_qty($branchId, $pid);
+      if ($current < $qty) {
+        throw new RuntimeException('Stok tidak cukup untuk order #' . $orderId);
+      }
+      stock_add_qty($branchId, $pid, -1 * $qty);
+    }
+  }
+
+  $stmtUpdate = db()->prepare("UPDATE orders SET stock_deducted_at=NOW() WHERE id=?");
+  $stmtUpdate->execute([$orderId]);
+  return true;
 }
 
 
@@ -397,7 +626,26 @@ function inventory_stock_map(array $productIds): array {
     return [];
   }
   $placeholders = implode(',', array_fill(0, count($productIds), '?'));
-  $stmt = db()->prepare("SELECT product_id, COALESCE(SUM(qty_in - qty_out),0) AS stock_qty FROM inv_stock_ledger WHERE branch_id=? AND product_id IN ($placeholders) GROUP BY product_id");
+  $stmt = db()->prepare("SELECT product_id, qty AS stock_qty FROM stok_barang WHERE branch_id=? AND product_id IN ($placeholders)");
+  $params = array_merge([$branchId], array_values($productIds));
+  $stmt->execute($params);
+  $rows = $stmt->fetchAll();
+  $map = [];
+  foreach ($rows as $row) {
+    $map[(int)$row['product_id']] = (float)$row['stock_qty'];
+  }
+  return $map;
+}
+
+function inv_stock_map_for_branch(int $branchId, array $productIds): array {
+  if ($branchId <= 0) {
+    return [];
+  }
+  if (count($productIds) === 0) {
+    return [];
+  }
+  $placeholders = implode(',', array_fill(0, count($productIds), '?'));
+  $stmt = db()->prepare("SELECT product_id, qty AS stock_qty FROM stok_barang WHERE branch_id=? AND product_id IN ($placeholders)");
   $params = array_merge([$branchId], array_values($productIds));
   $stmt->execute($params);
   $rows = $stmt->fetchAll();
@@ -414,13 +662,7 @@ function inventory_stock_by_product(int $productId): float {
 }
 
 function inv_get_stock(int $branchId, int $productId): float {
-  if ($branchId <= 0 || $productId <= 0) {
-    return 0.0;
-  }
-  $stmt = db()->prepare("SELECT COALESCE(SUM(qty_in - qty_out),0) AS stock_qty FROM inv_stock_ledger WHERE branch_id=? AND product_id=?");
-  $stmt->execute([$branchId, $productId]);
-  $row = $stmt->fetch();
-  return (float)($row['stock_qty'] ?? 0);
+  return stock_get_qty($branchId, $productId);
 }
 
 function inventory_user_branch(array $user): ?array {

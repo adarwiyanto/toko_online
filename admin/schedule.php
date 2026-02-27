@@ -15,6 +15,7 @@ ensure_employee_attendance_tables();
 $me = current_user();
 $currentRole = (string)($me['role'] ?? '');
 $employeeRoleFilter = [
+  'adm',
   'pegawai_pos',
   'pegawai_non_pos',
   'manager_toko',
@@ -24,7 +25,7 @@ $employeeRoleFilter = [
 if ($currentRole === 'owner') {
   $employeeRoleFilter[] = 'admin';
 } elseif ($currentRole === 'manager_toko') {
-  $employeeRoleFilter = ['pegawai_pos', 'pegawai_non_pos'];
+  $employeeRoleFilter = ['adm', 'pegawai_pos', 'pegawai_non_pos'];
 } elseif ($currentRole === 'manager_dapur') {
   $employeeRoleFilter = ['pegawai_dapur'];
 }

@@ -59,6 +59,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
       $i->execute([$transferId, $item['product_id'], $item['qty'], 0]);
       $ledger->execute([$sourceBranchId, $item['product_id'], $transferId, $item['qty'], $now]);
+      $productId = ensure_products_row_from_inv_product((int)$item['product_id']);
+      if ($productId > 0) {
+        stok_barang_add_qty($sourceBranchId, $productId, -1 * (float)$item['qty']);
+      }
     }
     db()->commit();
     inventory_set_flash('ok', 'Kiriman dapur berhasil dibuat, menunggu konfirmasi toko.');
