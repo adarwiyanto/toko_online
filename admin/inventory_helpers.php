@@ -135,6 +135,69 @@ function inventory_ensure_tables(): void {
     // Safety net only.
   }
 
+// === Produksi (BOM + Batch) ===
+// Resep = komposisi RAW per 1 unit FINISHED.
+try {
+  db()->exec("CREATE TABLE IF NOT EXISTS inv_recipes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    finished_product_id INT NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    UNIQUE KEY uq_inv_recipes_finished (finished_product_id),
+    CONSTRAINT fk_inv_recipes_finished FOREIGN KEY (finished_product_id) REFERENCES inv_products(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+  db()->exec("CREATE TABLE IF NOT EXISTS inv_recipe_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    recipe_id INT NOT NULL,
+    raw_product_id INT NOT NULL,
+    qty_per_unit DECIMAL(18,3) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    UNIQUE KEY uq_inv_recipe_items (recipe_id, raw_product_id),
+    INDEX idx_inv_recipe_items_recipe (recipe_id),
+    INDEX idx_inv_recipe_items_raw (raw_product_id),
+    CONSTRAINT fk_inv_recipe_items_recipe FOREIGN KEY (recipe_id) REFERENCES inv_recipes(id) ON DELETE CASCADE,
+    CONSTRAINT fk_inv_recipe_items_raw FOREIGN KEY (raw_product_id) REFERENCES inv_products(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+  db()->exec("CREATE TABLE IF NOT EXISTS inv_productions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    branch_id INT NOT NULL,
+    recipe_id INT NOT NULL,
+    finished_product_id INT NOT NULL,
+    batch_qty DECIMAL(18,3) NOT NULL DEFAULT 0,
+    note VARCHAR(255) NULL,
+    status ENUM('draft','done','void') NOT NULL DEFAULT 'done',
+    created_by INT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    INDEX idx_inv_productions_branch (branch_id),
+    INDEX idx_inv_productions_finished (finished_product_id),
+    INDEX idx_inv_productions_recipe (recipe_id),
+    CONSTRAINT fk_inv_productions_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+    CONSTRAINT fk_inv_productions_recipe FOREIGN KEY (recipe_id) REFERENCES inv_recipes(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_inv_productions_finished FOREIGN KEY (finished_product_id) REFERENCES inv_products(id) ON DELETE RESTRICT
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+  db()->exec("CREATE TABLE IF NOT EXISTS inv_production_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    production_id INT NOT NULL,
+    raw_product_id INT NOT NULL,
+    qty_used DECIMAL(18,3) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    INDEX idx_inv_production_items_prod (production_id),
+    INDEX idx_inv_production_items_raw (raw_product_id),
+    CONSTRAINT fk_inv_production_items_prod FOREIGN KEY (production_id) REFERENCES inv_productions(id) ON DELETE CASCADE,
+    CONSTRAINT fk_inv_production_items_raw FOREIGN KEY (raw_product_id) REFERENCES inv_products(id) ON DELETE RESTRICT
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+} catch (Throwable $e) {
+  // Aman: jangan bikin admin blank jika migrasi gagal.
+}
+
+
   try {
     if (!inventory_column_exists('users', 'branch_id')) {
       db()->exec("ALTER TABLE users ADD COLUMN branch_id INT NULL AFTER role");
@@ -163,6 +226,7 @@ function inventory_ensure_tables(): void {
     cost_price DECIMAL(18,2) NULL,
     sell_price DECIMAL(18,2) NULL,
     image_path VARCHAR(255) NULL,
+    show_on_landing TINYINT(1) NOT NULL DEFAULT 1,
     is_hidden TINYINT(1) NOT NULL DEFAULT 0,
     is_deleted TINYINT(1) NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL,
@@ -173,6 +237,10 @@ function inventory_ensure_tables(): void {
   try {
     if (!inventory_column_exists('inv_products', 'image_path')) {
       db()->exec("ALTER TABLE inv_products ADD COLUMN image_path VARCHAR(255) NULL AFTER sell_price");
+    }
+
+    if (!inventory_column_exists('inv_products', 'show_on_landing')) {
+      db()->exec("ALTER TABLE inv_products ADD COLUMN show_on_landing TINYINT(1) NOT NULL DEFAULT 1 AFTER image_path");
     }
   } catch (Throwable $e) {
     // Diamkan agar halaman tidak gagal total.
@@ -190,6 +258,14 @@ function inventory_ensure_tables(): void {
     if (!inventory_column_exists('inv_products', 'kitchen_group')) {
       db()->exec("ALTER TABLE inv_products ADD COLUMN kitchen_group ENUM('raw','finished') NULL AFTER audience");
     }
+
+// Normalisasi kitchen_group agar modul dapur (transfer/produksi) tidak kosong.
+// - audience=toko -> finished
+// - audience=dapur & type=RAW -> raw
+// - audience=dapur & type=FINISHED -> finished
+db()->exec("UPDATE inv_products SET kitchen_group='finished' WHERE (kitchen_group IS NULL OR kitchen_group='') AND audience='toko'");
+db()->exec("UPDATE inv_products SET kitchen_group='raw' WHERE (kitchen_group IS NULL OR kitchen_group='') AND audience='dapur' AND type='RAW'");
+db()->exec("UPDATE inv_products SET kitchen_group='finished' WHERE (kitchen_group IS NULL OR kitchen_group='') AND audience='dapur' AND type='FINISHED'");
   } catch (Throwable $e) {
     // Diamkan agar halaman tidak gagal total.
   }

@@ -10,7 +10,33 @@ require_once __DIR__ . '/core/customer_auth.php';
 try {
   ensure_inv_stocks_table();
   ensure_landing_order_tables();
-  $products = db()->query("SELECT id, sku, name, unit, sell_price AS price, image_path FROM inv_products WHERE is_deleted=0 AND is_hidden=0 ORDER BY name ASC")->fetchAll();
+// Pastikan kolom untuk filter landing ada (agar landing tidak error saat pertama kali dibuka).
+try {
+  db()->exec("ALTER TABLE inv_products ADD COLUMN show_on_landing TINYINT(1) NOT NULL DEFAULT 1 AFTER image_path");
+} catch (Throwable $e) { /* ignore */ }
+try {
+  db()->exec("ALTER TABLE inv_products ADD COLUMN kitchen_group ENUM('raw','finished') NULL AFTER audience");
+} catch (Throwable $e) { /* ignore */ }
+
+  $branchIdForList = web_sales_branch_id();
+  if ($branchIdForList > 0) {
+    $sql = "SELECT p.id, p.sku, p.name, p.unit, p.sell_price AS price, p.image_path
+            FROM inv_products p
+            JOIN inv_stocks s ON s.inv_product_id = p.id AND s.branch_id = ?
+            WHERE p.is_deleted=0
+              AND p.is_hidden=0
+              AND p.show_on_landing=1
+              AND p.audience='toko'
+              AND (p.type='FINISHED' OR p.kitchen_group='finished')
+              AND s.qty > 0
+            ORDER BY p.name ASC";
+    $stmt = db()->prepare($sql);
+    $stmt->execute([$branchIdForList]);
+    $products = $stmt->fetchAll();
+  } else {
+    // Cabang penjualan web belum diatur; tampilkan landing tanpa katalog.
+    $products = [];
+  }
 } catch (Throwable $e) {
   header('Location: install/index.php');
   exit;

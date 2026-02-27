@@ -92,6 +92,7 @@ if (in_array($role, ['owner', 'admin'], true)) {
           <a href="<?php echo e(base_url('admin/product_categories.php')); ?>">Kategori Produk</a>
           <?php if (in_array($u['role'] ?? '', ['owner', 'admin'], true)): ?>
             <a href="<?php echo e(base_url('admin/inventory_products.php')); ?>">Produk (Global)</a>
+            <a href="<?php echo e(base_url('admin/inventory_production.php')); ?>">Produksi</a>
             <a href="<?php echo e(base_url('admin/inventory_branch_prices.php')); ?>">Harga Jual Cabang</a>
             <a href="<?php echo e(base_url('admin/inventory_opening.php')); ?>">Stok Awal</a>
             <a href="<?php echo e(base_url('admin/inventory_purchases.php')); ?>">Pembelian Pihak Ketiga</a>
