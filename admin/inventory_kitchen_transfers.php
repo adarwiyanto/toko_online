@@ -62,6 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $qty = (float)$it['qty_sent'];
         if ($qty <= 0) continue;
         $ledger->execute([$sourceBranchId, $pid, $transferId, $qty, $now]);
+        stock_add_qty($sourceBranchId, $pid, -1 * $qty);
         $productId = ensure_products_row_from_inv_product($pid);
         if ($productId > 0) {
           stok_barang_add_qty($sourceBranchId, $productId, -1 * $qty);
@@ -140,10 +141,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         throw new RuntimeException('Produk kirim tidak valid.');
       }
       $i->execute([$transferId, $item['product_id'], $item['qty'], 0]);
-      $ledger->execute([$sourceBranchId, $item['product_id'], $transferId, $item['qty'], $now]);
-      $productId = ensure_products_row_from_inv_product((int)$item['product_id']);
+      $invProductId = (int)$item['product_id'];
+      $qtySend = (float)$item['qty'];
+      $ledger->execute([$sourceBranchId, $invProductId, $transferId, $qtySend, $now]);
+      stock_add_qty($sourceBranchId, $invProductId, -1 * $qtySend);
+      $productId = ensure_products_row_from_inv_product($invProductId);
       if ($productId > 0) {
-        stok_barang_add_qty($sourceBranchId, $productId, -1 * (float)$item['qty']);
+        stok_barang_add_qty($sourceBranchId, $productId, -1 * $qtySend);
       }
     }
     db()->commit();

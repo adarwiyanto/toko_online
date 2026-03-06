@@ -16,7 +16,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   db()->beginTransaction();
   try {
+    ensure_inv_stocks_table();
+    db()->exec("SET FOREIGN_KEY_CHECKS=0");
     db()->exec("TRUNCATE TABLE stok_barang");
+    db()->exec("TRUNCATE TABLE inv_stocks");
+    db()->exec("SET FOREIGN_KEY_CHECKS=1");
 
     $stmt = db()->query("SELECT l.branch_id, l.product_id AS inv_product_id, COALESCE(SUM(l.qty_in - l.qty_out),0) AS qty
       FROM inv_stock_ledger l
@@ -30,6 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($branchId <= 0 || $invProductId <= 0) {
         continue;
       }
+      stock_set_qty($branchId, $invProductId, $qty);
       $productId = ensure_products_row_from_inv_product($invProductId);
       if ($productId > 0) {
         stok_barang_set_qty($branchId, $productId, $qty);
