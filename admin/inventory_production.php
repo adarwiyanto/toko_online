@@ -32,6 +32,13 @@ function production_safe_decimal($v): float {
   return (float)$v;
 }
 
+function production_redirect_url(string $tab, int $finishedId = 0, int $lastProdId = 0): string {
+  $params = ['tab' => $tab];
+  if ($finishedId > 0) $params['finished'] = $finishedId;
+  if ($lastProdId > 0) $params['last_prod'] = $lastProdId;
+  return base_url('admin/inventory_production.php?' . http_build_query($params));
+}
+
 function production_load_recipe(int $finishedProductId): ?array {
   $stmt = db()->prepare("SELECT * FROM inv_recipes WHERE finished_product_id=? LIMIT 1");
   $stmt->execute([$finishedProductId]);
@@ -67,13 +74,13 @@ function production_get_production(int $prodId, int $branchId): ?array {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $action = (string)($_POST['action'] ?? '');
+  $db = null;
 
   try {
     if ($action === 'save_recipe') {
       $finishedId = (int)($_POST['finished_product_id'] ?? 0);
       if ($finishedId <= 0) throw new Exception('Pilih produk finished.');
 
-      // Validasi: finished harus dapur/finished
       $chk = db()->prepare("SELECT id FROM inv_products WHERE id=? AND audience='dapur' AND (type='FINISHED' OR kitchen_group='finished') AND is_deleted=0 AND is_hidden=0 LIMIT 1");
       $chk->execute([$finishedId]);
       if (!$chk->fetchColumn()) throw new Exception('Produk finished tidak valid untuk dapur.');
@@ -82,7 +89,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $db = db();
       $db->beginTransaction();
 
-      // upsert recipe
       $stmt = $db->prepare("SELECT id FROM inv_recipes WHERE finished_product_id=? LIMIT 1");
       $stmt->execute([$finishedId]);
       $recipeId = (int)($stmt->fetchColumn() ?: 0);
@@ -96,7 +102,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $up->execute([$now, $recipeId]);
       }
 
-      // replace items (simple & safe)
       $db->prepare("DELETE FROM inv_recipe_items WHERE recipe_id=?")->execute([$recipeId]);
 
       $rawIds = $_POST['raw_product_id'] ?? [];
@@ -111,7 +116,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($rawId <= 0) continue;
         if ($qty <= 0) continue;
 
-        // Validasi raw
         $chkR = $db->prepare("SELECT id FROM inv_products WHERE id=? AND audience='dapur' AND (type='RAW' OR kitchen_group='raw') AND is_deleted=0 AND is_hidden=0 LIMIT 1");
         $chkR->execute([$rawId]);
         if (!$chkR->fetchColumn()) continue;
@@ -126,7 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       $db->commit();
       inventory_set_flash('ok', 'Resep produksi disimpan.');
-      redirect(base_url('admin/inventory_production.php?tab=resep&finished=' . $finishedId));
+      redirect(production_redirect_url('resep', $finishedId));
     }
 
     if ($action === 'run_production') {
@@ -138,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($batchQty <= 0) throw new Exception('Qty produksi harus > 0.');
 
       $recipe = production_load_recipe($finishedId);
-      if (!$recipe) throw new Exception('Resep belum dibuat untuk produk ini.');
+      if (!$recipe) throw new Exception('Resep/BOM belum dibuat untuk produk ini.');
 
       $recipeId = (int)($recipe['id'] ?? 0);
       if ($recipeId <= 0) throw new Exception('Resep tidak valid.');
@@ -146,21 +150,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $rawIds = $_POST['raw_product_id'] ?? [];
       $usedQtys = $_POST['qty_used'] ?? [];
 
-      // Map qty_used per raw
       $usedMap = [];
+      $nonZeroCount = 0;
+      $hasPostedQty = false;
       foreach ($rawIds as $i => $ridRaw) {
         $rawId = (int)$ridRaw;
-        $qty = production_safe_decimal($usedQtys[$i] ?? 0);
-        if ($rawId > 0) {
-          $usedMap[$rawId] = $qty;
+        if ($rawId <= 0) continue;
+
+        $rawPosted = $usedQtys[$i] ?? null;
+        if ($rawPosted !== null && trim((string)$rawPosted) !== '') {
+          $hasPostedQty = true;
         }
+
+        $qty = production_safe_decimal($rawPosted ?? 0);
+        if ($qty < 0) {
+          throw new Exception('Qty raw tidak boleh negatif.');
+        }
+        if ($qty > 0) {
+          $nonZeroCount++;
+        }
+        $usedMap[$rawId] = $qty;
       }
 
-      // Validasi stok cukup
+      if ($hasPostedQty && $nonZeroCount <= 0) {
+        throw new Exception('Minimal ada 1 bahan baku yang dipakai.');
+      }
+
       foreach (($recipe['items'] ?? []) as $it) {
         $rawId = (int)$it['raw_product_id'];
-        $need = (float)($usedMap[$rawId] ?? ((float)$it['qty_per_unit'] * $batchQty));
-        if ($need < 0) throw new Exception('Qty raw tidak boleh negatif.');
+        $need = array_key_exists($rawId, $usedMap)
+          ? (float)$usedMap[$rawId]
+          : ((float)$it['qty_per_unit'] * $batchQty);
         $available = stock_get_qty($activeBranchId, $rawId);
         if ($available + 1e-9 < $need) {
           throw new Exception('Stok raw tidak cukup: ' . (string)$it['name'] . ' (butuh ' . $need . ', tersedia ' . $available . ').');
@@ -171,29 +191,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $db->beginTransaction();
       $now = inventory_now();
 
-      // insert production header
       $ins = $db->prepare("INSERT INTO inv_productions (branch_id, recipe_id, finished_product_id, batch_qty, note, status, created_by, created_at, updated_at)
                            VALUES (?,?,?,?,?,'done',?,?,?)");
       $ins->execute([$activeBranchId, $recipeId, $finishedId, $batchQty, ($note !== '' ? $note : null), ($userId > 0 ? $userId : null), $now, $now]);
       $prodId = (int)$db->lastInsertId();
 
-      // insert items + deduct raw
       $insIt = $db->prepare("INSERT INTO inv_production_items (production_id, raw_product_id, qty_used, created_at, updated_at) VALUES (?,?,?,?,?)");
       foreach (($recipe['items'] ?? []) as $it) {
         $rawId = (int)$it['raw_product_id'];
-        $need = (float)($usedMap[$rawId] ?? ((float)$it['qty_per_unit'] * $batchQty));
+        $need = array_key_exists($rawId, $usedMap)
+          ? (float)$usedMap[$rawId]
+          : ((float)$it['qty_per_unit'] * $batchQty);
         $insIt->execute([$prodId, $rawId, $need, $now, $now]);
         if ($need > 0) {
           stock_add_qty($activeBranchId, $rawId, -1 * $need);
         }
       }
 
-      // add finished stock to dapur
       stock_add_qty($activeBranchId, $finishedId, $batchQty);
 
       $db->commit();
       inventory_set_flash('ok', 'Produksi selesai. Stok raw berkurang dan finished bertambah di cabang dapur.');
-      redirect(base_url('admin/inventory_production.php?tab=produksi&finished=' . $finishedId . '&last_prod=' . $prodId));
+      redirect(production_redirect_url('produksi', $finishedId, $prodId));
     }
 
     if ($action === 'create_transfer_draft') {
@@ -207,17 +226,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($finishedId <= 0) throw new Exception('Produk finished tidak valid.');
       if ($qtySend <= 0) throw new Exception('Qty kirim harus > 0.');
 
-      // target toko valid
       $tb = db()->prepare("SELECT id FROM branches WHERE id=? AND branch_type='toko' AND is_active=1 LIMIT 1");
       $tb->execute([$targetBranchId]);
       if (!$tb->fetch()) throw new Exception('Cabang tujuan toko tidak valid.');
 
-      // finished valid (dapur finished)
       $chk = db()->prepare("SELECT id FROM inv_products WHERE id=? AND audience='dapur' AND (type='FINISHED' OR kitchen_group='finished') AND is_deleted=0 AND is_hidden=0 LIMIT 1");
       $chk->execute([$finishedId]);
       if (!$chk->fetchColumn()) throw new Exception('Produk finished tidak valid untuk dapur.');
 
-      // produksi harus milik cabang aktif
       $pr = production_get_production($prodId, $activeBranchId);
       if (!$pr) throw new Exception('Produksi tidak ditemukan pada cabang aktif.');
 
@@ -239,11 +255,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
   } catch (Throwable $e) {
-    if (isset($db) && $db->inTransaction()) {
+    if ($db instanceof PDO && $db->inTransaction()) {
       $db->rollBack();
     }
+
+    $finishedIdForError = (int)($_POST['finished_product_id'] ?? $_GET['finished'] ?? 0);
+    $lastProdIdForError = (int)($_POST['production_id'] ?? $_GET['last_prod'] ?? 0);
+    $tabForError = 'resep';
+    if ($action === 'run_production' || $action === 'create_transfer_draft') {
+      $tabForError = 'produksi';
+    }
+
     inventory_set_flash('error', $e->getMessage());
-    redirect(base_url('admin/inventory_production.php'));
+    redirect(production_redirect_url($tabForError, $finishedIdForError, $action === 'create_transfer_draft' ? $lastProdIdForError : 0));
   }
 }
 
@@ -260,6 +284,14 @@ $rawProducts = db()->query("SELECT id,name,sku,unit FROM inv_products
 
 $selectedFinished = (int)($_GET['finished'] ?? 0);
 $selectedRecipe = $selectedFinished > 0 ? production_load_recipe($selectedFinished) : null;
+
+$selectedFinishedRow = null;
+foreach ($finishedProducts as $fp) {
+  if ((int)$fp['id'] === $selectedFinished) {
+    $selectedFinishedRow = $fp;
+    break;
+  }
+}
 
 $lastProdId = (int)($_GET['last_prod'] ?? 0);
 $lastProd = $lastProdId > 0 ? production_get_production($lastProdId, $activeBranchId) : null;
@@ -282,7 +314,14 @@ $recentProductions = $recentProductions->fetchAll();
   <title>Produksi</title>
   <link rel="icon" href="<?php echo e(favicon_url()); ?>">
   <link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>">
-  <style><?php echo $customCss; ?></style>
+  <style>
+    <?php echo $customCss; ?>
+    .prod-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .prod-review-box{margin:12px 0;padding:14px;border:1px solid #dbeafe;border-radius:12px;background:#f8fbff}
+    .prod-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px}
+    .prod-info-item{padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff}
+    .prod-muted{color:#6b7280}
+  </style>
 </head>
 <body>
 <div class="container">
@@ -300,8 +339,8 @@ $recentProductions = $recentProductions->fetchAll();
 
       <div class="card" style="margin-bottom:14px">
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <a class="btn <?php echo $tab==='resep'?'':'btn-light'; ?>" href="<?php echo e(base_url('admin/inventory_production.php?tab=resep')); ?>">Resep (BOM)</a>
-          <a class="btn <?php echo $tab==='produksi'?'':'btn-light'; ?>" href="<?php echo e(base_url('admin/inventory_production.php?tab=produksi')); ?>">Mulai Produksi</a>
+          <a class="btn <?php echo $tab==='resep'?'':'btn-light'; ?>" href="<?php echo e(production_redirect_url('resep', $selectedFinished)); ?>">Resep (BOM)</a>
+          <a class="btn <?php echo $tab==='produksi'?'':'btn-light'; ?>" href="<?php echo e(production_redirect_url('produksi', $selectedFinished, $lastProdId)); ?>">Mulai Produksi</a>
         </div>
         <small>Cabang aktif: <b><?php echo e((string)$activeBranch['name']); ?></b> (<?php echo e($activeBranchType); ?>)</small>
       </div>
@@ -342,11 +381,11 @@ $recentProductions = $recentProductions->fetchAll();
                     if ($selectedRecipe && !empty($selectedRecipe['items'])) {
                       foreach ($selectedRecipe['items'] as $it) { $existing[(int)$it['raw_product_id']] = (float)$it['qty_per_unit']; }
                     }
-                    // tampilkan 8 baris default
+                    $existingKeys = array_keys($existing);
                     $rows = max(8, count($existing) + 2);
                     for ($i=0; $i<$rows; $i++):
-                      $rawIdSel = (int)array_keys($existing)[$i] ?? 0;
-                      $qtySel = $rawIdSel ? (float)$existing[$rawIdSel] : 0;
+                      $rawIdSel = isset($existingKeys[$i]) ? (int)$existingKeys[$i] : 0;
+                      $qtySel = $rawIdSel > 0 ? (float)$existing[$rawIdSel] : 0;
                   ?>
                     <tr>
                       <td>
@@ -379,7 +418,34 @@ $recentProductions = $recentProductions->fetchAll();
 
       <?php else: ?>
         <div class="card">
-          <h3 style="margin-top:0">Mulai Produksi</h3>
+          <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
+            <div>
+              <h3 style="margin-top:0;margin-bottom:8px">Mulai Produksi</h3>
+              <?php if ($selectedFinishedRow): ?>
+                <small>Produk terpilih: <b><?php echo e((string)$selectedFinishedRow['name']); ?></b><?php echo !empty($selectedFinishedRow['unit']) ? ' (' . e((string)$selectedFinishedRow['unit']) . ')' : ''; ?></small>
+              <?php else: ?>
+                <small class="prod-muted">Pilih produk finished lalu load resep.</small>
+              <?php endif; ?>
+            </div>
+
+            <form method="get" class="prod-actions">
+              <input type="hidden" name="tab" value="produksi">
+              <div>
+                <label style="display:block;margin-bottom:6px">Produk finished (dapur)</label>
+                <select name="finished" id="finished_loader" required>
+                  <option value="">-- pilih --</option>
+                  <?php foreach ($finishedProducts as $fp): ?>
+                    <option value="<?php echo e((string)$fp['id']); ?>" <?php echo (int)$fp['id'] === $selectedFinished ? 'selected' : ''; ?>>
+                      <?php echo e($fp['name']); ?><?php echo $fp['sku'] ? ' (' . e($fp['sku']) . ')' : ''; ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div style="padding-top:26px">
+                <button class="btn" type="submit">Load Resep</button>
+              </div>
+            </form>
+          </div>
 
           <?php if ($lastProd): ?>
             <div class="card" style="margin:10px 0;background:#0b1220;color:#fff">
@@ -421,19 +487,13 @@ $recentProductions = $recentProductions->fetchAll();
           <form method="post" style="margin-bottom:14px">
             <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
             <input type="hidden" name="action" value="run_production">
+            <input type="hidden" name="finished_product_id" value="<?php echo e((string)$selectedFinished); ?>">
 
             <div class="grid cols-2">
               <div class="row">
                 <label>Produk finished (dapur)</label>
-                <select name="finished_product_id" required onchange="location.href='<?php echo e(base_url('admin/inventory_production.php?tab=produksi&finished=')); ?>'+this.value">
-                  <option value="">-- pilih --</option>
-                  <?php foreach ($finishedProducts as $fp): ?>
-                    <option value="<?php echo e((string)$fp['id']); ?>" <?php echo (int)$fp['id'] === $selectedFinished ? 'selected' : ''; ?>>
-                      <?php echo e($fp['name']); ?><?php echo $fp['sku'] ? ' (' . e($fp['sku']) . ')' : ''; ?>
-                    </option>
-                  <?php endforeach; ?>
-                </select>
-                <small>Pilih finished -> sistem load resepnya.</small>
+                <input type="text" value="<?php echo e($selectedFinishedRow ? ((string)$selectedFinishedRow['name'] . (!empty($selectedFinishedRow['unit']) ? ' (' . (string)$selectedFinishedRow['unit'] . ')' : '')) : 'Belum dipilih'); ?>" readonly>
+                <small>Gunakan form "Load Resep" di atas untuk memilih atau mengganti produk finished.</small>
               </div>
 
               <div class="row">
@@ -448,18 +508,26 @@ $recentProductions = $recentProductions->fetchAll();
               </div>
             </div>
 
-            <?php if ($selectedFinished > 0 && $selectedRecipe && !empty($selectedRecipe['items'])): ?>
-              <div class="card" style="margin:12px 0">
-                <b>Raw yang akan dipakai</b><br>
-                <small>Default = qty_per_unit × qty produksi. Bisa diedit sebelum diproses.</small>
-                <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-                  <button class="btn btn-light" type="button" id="btnFillDefault">Isi default (auto)</button>
-                  <small style="align-self:center">Kalau sudah kamu edit manual, sistem tidak akan menimpa lagi.</small>
+            <?php if ($selectedFinished <= 0): ?>
+              <div class="card" style="margin-top:12px">
+                <small>Pilih produk finished lalu load resep.</small>
+              </div>
+            <?php elseif (!$selectedRecipe || empty($selectedRecipe['items'])): ?>
+              <div class="card" style="margin-top:12px">
+                <small>Resep/BOM belum dibuat untuk produk ini.</small>
+              </div>
+            <?php else: ?>
+              <div class="prod-review-box">
+                <b>Review & Edit Bahan Baku</b><br>
+                <small>Default dihitung dari BOM × qty produksi. Anda bisa ubah qty final sebelum proses produksi.</small>
+                <div class="prod-actions" style="margin-top:10px">
+                  <button class="btn btn-light" type="button" id="btnFillDefault">Isi default dari BOM</button>
+                  <button class="btn btn-light" type="button" id="btnResetDefault">Reset semua ke default</button>
                 </div>
               </div>
 
               <table class="table">
-                <thead><tr><th>RAW</th><th>Default per unit</th><th>Qty dipakai (editable)</th><th>Unit</th><th>Stok tersedia</th></tr></thead>
+                <thead><tr><th>RAW</th><th>Qty default / unit</th><th>Qty total default</th><th>Qty dipakai final</th><th>Unit</th><th>Stok tersedia</th></tr></thead>
                 <tbody>
                   <?php foreach ($selectedRecipe['items'] as $it): ?>
                     <?php
@@ -468,10 +536,14 @@ $recentProductions = $recentProductions->fetchAll();
                       $avail = stock_get_qty($activeBranchId, $rawId);
                     ?>
                     <tr>
-                      <td><?php echo e($it['name']); ?>
+                      <td>
+                        <?php echo e($it['name']); ?>
                         <input type="hidden" name="raw_product_id[]" value="<?php echo e((string)$rawId); ?>">
                       </td>
                       <td><?php echo e((string)$per); ?></td>
+                      <td>
+                        <span class="qtyDefaultText" data-per="<?php echo e((string)$per); ?>">0</span>
+                      </td>
                       <td>
                         <input
                           class="qtyUsed"
@@ -486,10 +558,6 @@ $recentProductions = $recentProductions->fetchAll();
               </table>
 
               <button class="btn" type="submit">Proses Produksi</button>
-            <?php else: ?>
-              <div class="card" style="margin-top:12px">
-                <small>Belum ada resep untuk produk ini, atau belum pilih produk finished.</small>
-              </div>
             <?php endif; ?>
           </form>
 
@@ -519,6 +587,8 @@ $recentProductions = $recentProductions->fetchAll();
 (function(){
   var qtyEl = document.getElementById('batch_qty');
   var btn = document.getElementById('btnFillDefault');
+  var btnReset = document.getElementById('btnResetDefault');
+  var finishedLoader = document.getElementById('finished_loader');
 
   function toNum(v){
     if (v === null || v === undefined) return 0;
@@ -529,11 +599,21 @@ $recentProductions = $recentProductions->fetchAll();
   function round3(n){
     return Math.round(n * 1000) / 1000;
   }
-
+  function fmt(n){
+    n = round3(n);
+    return Number.isInteger(n) ? String(n) : String(n);
+  }
+  function updateDefaultTexts(batch){
+    var texts = document.querySelectorAll('.qtyDefaultText[data-per]');
+    texts.forEach(function(el){
+      var per = toNum(el.dataset.per);
+      el.textContent = fmt(per * batch);
+    });
+  }
   function fill(force){
     if (!qtyEl) return;
     var batch = toNum(qtyEl.value);
-    if (batch <= 0) return;
+    updateDefaultTexts(batch);
     var inputs = document.querySelectorAll('input.qtyUsed[data-per]');
     inputs.forEach(function(inp){
       var manual = inp.dataset.manual === '1';
@@ -556,11 +636,21 @@ $recentProductions = $recentProductions->fetchAll();
     qtyEl.addEventListener('change', function(){ fill(false); });
   }
   if (btn) {
-    btn.addEventListener('click', function(){ fill(true); });
+    btn.addEventListener('click', function(){ fill(false); });
+  }
+  if (btnReset) {
+    btnReset.addEventListener('click', function(){ fill(true); });
+  }
+  if (finishedLoader) {
+    finishedLoader.addEventListener('change', function(){
+      var form = finishedLoader.form;
+      if (form && finishedLoader.value !== '') {
+        form.submit();
+      }
+    });
   }
 
-  // initial
-  setTimeout(function(){ fill(false); }, 50);
+  setTimeout(function(){ fill(true); }, 50);
 })();
 </script>
 </body>
