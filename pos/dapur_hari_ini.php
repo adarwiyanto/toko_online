@@ -70,6 +70,19 @@ $stmt = db()->prepare("SELECT a.id AS activity_id, a.activity_name, t.target_qty
 $stmt->execute([(int)$me['id'], $today]);
 $rows = $stmt->fetchAll();
 
+
+$fallbackStmt = db()->prepare("SELECT r.id AS realization_id, a.activity_name, r.qty, COALESCE(a.point_value,0) AS point_value,
+    COUNT(ap.id) AS approver_total,
+    SUM(CASE WHEN ap.approved_at IS NOT NULL THEN 1 ELSE 0 END) AS approver_approved
+  FROM kitchen_kpi_realizations r
+  JOIN kitchen_kpi_activities a ON a.id = r.activity_id
+  LEFT JOIN kitchen_kpi_realization_approvals ap ON ap.realization_id = r.id
+  WHERE r.user_id = ? AND r.realization_date = ?
+  GROUP BY r.id, a.activity_name, r.qty, a.point_value
+  ORDER BY a.activity_name ASC");
+$fallbackStmt->execute([(int)$me['id'], $today]);
+$realizationOnlyRows = $fallbackStmt->fetchAll();
+
 $activitiesStmt = db()->query("SELECT id,activity_name FROM kitchen_kpi_activities ORDER BY activity_name ASC");
 $activities = $activitiesStmt->fetchAll();
 
@@ -117,6 +130,31 @@ $announcement = latest_active_announcement('dapur');
         <button class="btn" type="submit">Simpan Realisasi</button>
       </form>
     </div>
+
+
+    <?php if (!$rows && $realizationOnlyRows): ?>
+      <div class="card" style="margin-top:12px">
+        <h3>Realisasi Hari Ini (Tanpa Target)</h3>
+        <table class="table">
+          <thead><tr><th>Kegiatan</th><th>Qty</th><th>Point</th><th>Approval</th></tr></thead>
+          <tbody>
+          <?php foreach ($realizationOnlyRows as $fr): $fApproved = (int)$fr['approver_approved']; $fTotal = (int)$fr['approver_total']; ?>
+            <tr>
+              <td><?php echo e((string)$fr['activity_name']); ?></td>
+              <td><?php echo e((string)$fr['qty']); ?></td>
+              <td><?php echo e((string)((int)$fr['qty'] * (int)$fr['point_value'])); ?></td>
+              <td>
+                <?php if ($fTotal <= 0): ?>Tidak perlu approval / belum tersinkron<?php else: ?>
+                  <?php echo e((string)$fApproved . '/' . (string)$fTotal); ?>
+                  <?php echo ($fApproved >= 1) ? ' (Disetujui)' : ' (Menunggu persetujuan)'; ?>
+                <?php endif; ?>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+    <?php endif; ?>
 
     <table class="table">
       <thead><tr><th>Kegiatan</th><th>Status Target</th><th>Target</th><th>Realisasi</th><th>Status Persetujuan</th></tr></thead>

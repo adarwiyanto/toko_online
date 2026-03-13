@@ -835,10 +835,24 @@ function ensure_kitchen_kpi_tables(): void {
       }
     };
 
+    $addIndexIfMissing = static function (PDO $db, string $table, string $indexName, string $definition): void {
+      $stmt = $db->prepare('SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?');
+      $stmt->execute([$table, $indexName]);
+      if ((int)$stmt->fetchColumn() === 0) {
+        $db->exec("ALTER TABLE {$table} ADD INDEX {$indexName} {$definition}");
+      }
+    };
+
     $db = db();
     $addColumnIfMissing($db, 'kitchen_kpi_targets', 'created_by', 'INT NULL AFTER target_qty');
     $addColumnIfMissing($db, 'kitchen_kpi_targets', 'approved_by', 'INT NULL AFTER created_by');
     $addColumnIfMissing($db, 'kitchen_kpi_targets', 'approved_at', 'DATETIME NULL AFTER approved_by');
+
+    $addIndexIfMissing($db, 'kitchen_kpi_targets', 'idx_kpi_targets_user_date', '(user_id, target_date)');
+    $addIndexIfMissing($db, 'kitchen_kpi_targets', 'idx_kpi_targets_activity_date', '(activity_id, target_date)');
+    $addIndexIfMissing($db, 'kitchen_kpi_realizations', 'idx_kpi_realizations_user_date', '(user_id, realization_date)');
+    $addIndexIfMissing($db, 'kitchen_kpi_realizations', 'idx_kpi_realizations_activity_date', '(activity_id, realization_date)');
+    $addIndexIfMissing($db, 'kitchen_kpi_realization_approvals', 'idx_kpi_approvals_realization_approver', '(realization_id, approver_user_id)');
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.
   }
