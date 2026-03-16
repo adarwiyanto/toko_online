@@ -126,7 +126,7 @@ $customCss = setting('custom_css', '');
                 <td><?php echo e($p['name']); ?></td>
                 <td><?php echo e((string)$p['sku']); ?></td>
                 <td><?php echo e($p['unit']); ?></td>
-                <td><input type="number" step="0.001" min="0" name="qty[<?php echo e((string)$p['id']); ?>]" value="0"></td>
+                <td><input type="number" step="0.1" min="0" name="qty[<?php echo e((string)$p['id']); ?>]" value="0"></td>
                 <td><input type="number" step="0.01" min="0" name="buy_price[<?php echo e((string)$p['id']); ?>]" value="0"></td>
               </tr>
             <?php endforeach; ?>

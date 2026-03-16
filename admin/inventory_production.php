@@ -398,7 +398,7 @@ $recentProductions = $recentProductions->fetchAll();
                           <?php endforeach; ?>
                         </select>
                       </td>
-                      <td><input type="number" step="0.001" name="qty_per_unit[]" value="<?php echo e($qtySel > 0 ? (string)$qtySel : ''); ?>"></td>
+                      <td><input type="number" step="0.1" name="qty_per_unit[]" value="<?php echo e($qtySel > 0 ? (string)$qtySel : ''); ?>"></td>
                       <td>
                         <?php
                           $unit = '';
@@ -472,7 +472,7 @@ $recentProductions = $recentProductions->fetchAll();
                 </div>
                 <div class="row">
                   <label>Qty draft kirim</label>
-                  <input type="number" step="0.001" name="qty_send" required value="<?php echo e((string)$lastProd['batch_qty']); ?>">
+                  <input type="number" step="0.1" name="qty_send" required value="<?php echo e((string)$lastProd['batch_qty']); ?>">
                 </div>
                 <div class="row" style="grid-column:1/-1">
                   <label>Catatan (opsional)</label>
@@ -498,7 +498,7 @@ $recentProductions = $recentProductions->fetchAll();
 
               <div class="row">
                 <label>Qty produksi (unit finished)</label>
-                <input id="batch_qty" type="number" step="0.001" name="batch_qty" required value="">
+                <input id="batch_qty" type="number" step="0.1" name="batch_qty" required value="">
                 <small>Contoh: 10 pcs atau 2.5 kilogram (sesuai unit finished).</small>
               </div>
 
@@ -548,7 +548,7 @@ $recentProductions = $recentProductions->fetchAll();
                         <input
                           class="qtyUsed"
                           data-per="<?php echo e((string)$per); ?>"
-                          type="number" step="0.001" name="qty_used[]" value="">
+                          type="number" step="0.1" name="qty_used[]" value="">
                       </td>
                       <td><?php echo e((string)$it['unit']); ?></td>
                       <td><?php echo e((string)$avail); ?></td>
@@ -596,11 +596,11 @@ $recentProductions = $recentProductions->fetchAll();
     var n = parseFloat(v);
     return isNaN(n) ? 0 : n;
   }
-  function round3(n){
-    return Math.round(n * 1000) / 1000;
+  function round1(n){
+    return Math.round(n * 10) / 10;
   }
   function fmt(n){
-    n = round3(n);
+    n = round1(n);
     return Number.isInteger(n) ? String(n) : String(n);
   }
   function updateDefaultTexts(batch){
@@ -619,7 +619,7 @@ $recentProductions = $recentProductions->fetchAll();
       var manual = inp.dataset.manual === '1';
       if (!force && manual) return;
       var per = toNum(inp.dataset.per);
-      var val = round3(per * batch);
+      var val = round1(per * batch);
       inp.value = (val > 0 ? val : 0);
       if (force) inp.dataset.manual = '0';
     });
