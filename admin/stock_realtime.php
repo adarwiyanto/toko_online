@@ -96,7 +96,7 @@ $customCss = setting('custom_css', '');
 
   function formatStock(value) {
     const num = Number(value || 0);
-    return num.toLocaleString('id-ID', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+    return num.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   }
 
   function escapeHtml(s) {

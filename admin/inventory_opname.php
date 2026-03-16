@@ -74,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $systemQty = (float)$item['system_qty'];
       $diffQty = $counted - $systemQty;
       $note = trim((string)($noteMap[$itemIdRaw] ?? ''));
-      if (abs($diffQty) > 0.0005 && $note === '') {
+      if (abs($diffQty) > 0.05 && $note === '') {
         inventory_set_flash('error', 'Alasan wajib diisi ketika stok input berbeda dengan stok saat ini.');
         redirect(base_url('admin/inventory_opname.php?view=' . $opnameId));
       }
@@ -106,7 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $diff = (float)$item['diff_qty'];
         stock_set_qty($branchId, (int)$item['product_id'], (float)$item['counted_qty']);
 
-        if (abs($diff) < 0.0005) {
+        if (abs($diff) < 0.05) {
           continue;
         }
         if ($diff > 0) {
@@ -200,9 +200,9 @@ $customCss = setting('custom_css', '');
               <?php foreach ($viewItems as $item): ?>
               <tr>
                 <td><?php echo e($item['product_name']); ?> (<?php echo e((string)$item['unit']); ?>)</td>
-                <td><?php echo e(number_format((float)$item['system_qty'], 3, '.', ',')); ?></td>
-                <td><input <?php echo $viewHeader['status'] === 'POSTED' ? 'readonly' : ''; ?> type="number" step="0.001" name="counted_qty[<?php echo e((string)$item['id']); ?>]" value="<?php echo e((string)$item['counted_qty']); ?>"></td>
-                <td><?php echo e(number_format((float)$item['diff_qty'], 3, '.', ',')); ?></td>
+                <td><?php echo e(number_format((float)$item['system_qty'], 1, '.', ',')); ?></td>
+                <td><input <?php echo $viewHeader['status'] === 'POSTED' ? 'readonly' : ''; ?> type="number" step="0.1" name="counted_qty[<?php echo e((string)$item['id']); ?>]" value="<?php echo e((string)$item['counted_qty']); ?>"></td>
+                <td><?php echo e(number_format((float)$item['diff_qty'], 1, '.', ',')); ?></td>
                 <td><input <?php echo $viewHeader['status'] === 'POSTED' ? 'readonly' : ''; ?> type="text" name="note[<?php echo e((string)$item['id']); ?>]" value="<?php echo e((string)$item['note']); ?>"></td>
               </tr>
               <?php endforeach; ?>
