@@ -138,8 +138,8 @@ function kitchen_kpi_get_target_summary(PDO $pdo, string $startDate, string $end
       continue;
     }
     $map[$uid] = [
-      'target_qty' => (int)($row['target_qty'] ?? 0),
-      'target_point' => (int)($row['target_point'] ?? 0),
+      'target_qty' => (float)($row['target_qty'] ?? 0),
+      'target_point' => (float)($row['target_point'] ?? 0),
       'target_rows' => (int)($row['target_rows'] ?? 0),
       'target_days' => (int)($row['target_days'] ?? 0),
     ];
@@ -178,8 +178,8 @@ function kitchen_kpi_get_realization_summary(PDO $pdo, string $startDate, string
       continue;
     }
     $map[$uid] = [
-      'realized_qty' => (int)($row['realized_qty'] ?? 0),
-      'realization_point' => (int)($row['realization_point'] ?? 0),
+      'realized_qty' => (float)($row['realized_qty'] ?? 0),
+      'realization_point' => (float)($row['realization_point'] ?? 0),
       'realization_rows' => (int)($row['realization_rows'] ?? 0),
       'approval_total' => (int)($row['approval_total'] ?? 0),
       'approval_approved' => (int)($row['approval_approved'] ?? 0),
@@ -214,10 +214,10 @@ function kitchen_kpi_get_employee_totals(PDO $pdo, string $startDate, string $en
     $target = $targets[$uid] ?? ['target_qty' => 0, 'target_point' => 0, 'target_rows' => 0, 'target_days' => 0];
     $real = $realizations[$uid] ?? ['realized_qty' => 0, 'realization_point' => 0, 'realization_rows' => 0, 'approval_total' => 0, 'approval_approved' => 0];
 
-    $targetQty = (int)$target['target_qty'];
-    $realizedQty = (int)$real['realized_qty'];
-    $targetPoint = (int)$target['target_point'];
-    $totalPoint = (int)$real['realization_point'];
+    $targetQty = (float)$target['target_qty'];
+    $realizedQty = (float)$real['realized_qty'];
+    $targetPoint = (float)$target['target_point'];
+    $totalPoint = (float)$real['realization_point'];
     $realizationRows = (int)$real['realization_rows'];
     $approvalTotal = (int)$real['approval_total'];
     $approvalApproved = (int)$real['approval_approved'];
@@ -271,18 +271,18 @@ function kitchen_kpi_get_employee_totals(PDO $pdo, string $startDate, string $en
 }
 
 function kitchen_kpi_get_recap_grand_totals(array $rows): array {
-  $totalTargetQty = 0;
-  $totalRealizedQty = 0;
-  $totalTargetPoint = 0;
-  $totalRealizationPoint = 0;
+  $totalTargetQty = 0.0;
+  $totalRealizedQty = 0.0;
+  $totalTargetPoint = 0.0;
+  $totalRealizationPoint = 0.0;
   $capaianTotal = 0.0;
   $capaianCount = 0;
 
   foreach ($rows as $row) {
-    $totalTargetQty += (int)($row['target_qty'] ?? 0);
-    $totalRealizedQty += (int)($row['realized_qty'] ?? 0);
-    $totalTargetPoint += (int)($row['target_point'] ?? 0);
-    $totalRealizationPoint += (int)($row['realization_point'] ?? ($row['total_point'] ?? 0));
+    $totalTargetQty += (float)($row['target_qty'] ?? 0);
+    $totalRealizedQty += (float)($row['realized_qty'] ?? 0);
+    $totalTargetPoint += (float)($row['target_point'] ?? 0);
+    $totalRealizationPoint += (float)($row['realization_point'] ?? ($row['total_point'] ?? 0));
     if (isset($row['persentase_capaian']) && $row['persentase_capaian'] !== null) {
       $capaianTotal += (float)$row['persentase_capaian'];
       $capaianCount++;

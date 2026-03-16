@@ -11,6 +11,10 @@ start_secure_session();
 require_admin();
 ensure_kitchen_kpi_tables();
 
+$formatQty = static function ($qty): string {
+  return number_format((float)$qty, 1, ',', '.');
+};
+
 $me = current_user();
 $role = (string)($me['role'] ?? '');
 if (!in_array($role, ['owner', 'admin', 'manager_dapur'], true)) {
@@ -158,7 +162,7 @@ if ($filter === 'custom') {
               <td><?php echo e($p['realization_date']); ?></td>
               <td><?php echo e($p['name']); ?></td>
               <td><?php echo e($p['activity_name']); ?></td>
-              <td><?php echo e((string)$p['qty']); ?></td>
+              <td><?php echo e($formatQty($p['qty'])); ?></td>
               <td>
                 <form method="post" style="margin:0">
                   <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
@@ -183,7 +187,7 @@ if ($filter === 'custom') {
             <tr>
               <td><?php echo e($r['period_date']); ?></td><td><?php echo e($r['name']); ?></td><td><?php echo e($r['activity_name']); ?></td>
               <td><?php echo !empty($r['target_approved_at']) ? 'Disetujui' : 'Menunggu persetujuan'; ?></td>
-              <td><?php echo e((string)$r['target_qty']); ?></td><td><?php echo e((string)$r['realized_qty']); ?></td>
+              <td><?php echo e($formatQty($r['target_qty'])); ?></td><td><?php echo e($formatQty($r['realized_qty'])); ?></td>
               <td><?php if ((int)$r['realization_id'] <= 0): ?>Belum diinput<?php else: ?><?php echo e((string)$approved . '/' . (string)$total); ?><?php echo $isApproved ? ' (Disetujui)' : ' (Menunggu persetujuan)'; ?><?php endif; ?></td>
             </tr>
           <?php endforeach; endif; ?>
@@ -220,12 +224,12 @@ if ($filter === 'custom') {
               <td><?php echo e((string)$no++); ?></td>
               <td><?php echo e((string)$safe['name']); ?></td>
               <td><?php echo e((string)$safe['role']); ?></td>
-              <td><?php echo e(number_format((int)$safe['target_qty'], 0, ',', '.')); ?></td>
-              <td><?php echo e(number_format((int)$safe['realized_qty'], 0, ',', '.')); ?></td>
-              <td><?php echo e(number_format((int)$safe['target_point'], 0, ',', '.')); ?></td>
-              <td><?php echo e(number_format((int)$safe['total_point'], 0, ',', '.')); ?></td>
-              <td><?php echo e(number_format((int)$safe['selisih_point'], 0, ',', '.')); ?></td>
-              <td><?php echo $safe['persentase_capaian'] === null ? '-' : e(number_format((float)$safe['persentase_capaian'], 2, ',', '.') . '%'); ?></td>
+              <td><?php echo e(number_format((float)$safe['target_qty'], 1, ',', '.')); ?></td>
+              <td><?php echo e(number_format((float)$safe['realized_qty'], 1, ',', '.')); ?></td>
+              <td><?php echo e(number_format((float)$safe['target_point'], 1, ',', '.')); ?></td>
+              <td><?php echo e(number_format((float)$safe['total_point'], 1, ',', '.')); ?></td>
+              <td><?php echo e(number_format((float)$safe['selisih_point'], 1, ',', '.')); ?></td>
+              <td><?php echo $safe['persentase_capaian'] === null ? '-' : e(number_format((float)$safe['persentase_capaian'], 1, ',', '.') . '%'); ?></td>
               <td><?php echo e((string)$safe['approval_status_text']); ?></td>
               <td><?php echo e((string)$safe['data_status_text']); ?></td>
             </tr>
@@ -234,12 +238,12 @@ if ($filter === 'custom') {
           <tfoot>
           <tr>
             <th colspan="3">TOTAL</th>
-            <th><?php echo e(number_format((int)$safeTotals['total_target_qty'], 0, ',', '.')); ?></th>
-            <th><?php echo e(number_format((int)$safeTotals['total_realized_qty'], 0, ',', '.')); ?></th>
-            <th><?php echo e(number_format((int)$safeTotals['total_target_point'], 0, ',', '.')); ?></th>
-            <th><?php echo e(number_format((int)$safeTotals['total_point_all'], 0, ',', '.')); ?></th>
-            <th><?php echo e(number_format(((int)$safeTotals['total_point_all'] - (int)$safeTotals['total_target_point']), 0, ',', '.')); ?></th>
-            <th><?php echo $safeTotals['avg_capaian_percent'] === null ? '-' : e(number_format((float)$safeTotals['avg_capaian_percent'], 2, ',', '.') . '%'); ?></th>
+            <th><?php echo e(number_format((float)$safeTotals['total_target_qty'], 1, ',', '.')); ?></th>
+            <th><?php echo e(number_format((float)$safeTotals['total_realized_qty'], 1, ',', '.')); ?></th>
+            <th><?php echo e(number_format((float)$safeTotals['total_target_point'], 1, ',', '.')); ?></th>
+            <th><?php echo e(number_format((float)$safeTotals['total_point_all'], 1, ',', '.')); ?></th>
+            <th><?php echo e(number_format(((float)$safeTotals['total_point_all'] - (float)$safeTotals['total_target_point']), 1, ',', '.')); ?></th>
+            <th><?php echo $safeTotals['avg_capaian_percent'] === null ? '-' : e(number_format((float)$safeTotals['avg_capaian_percent'], 1, ',', '.') . '%'); ?></th>
             <th colspan="2">Ringkasan Semua Pegawai</th>
           </tr>
           </tfoot>
