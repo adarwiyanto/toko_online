@@ -47,12 +47,12 @@ foreach ($rows as $row) {
     $no++,
     (string)$row['name'],
     (string)$row['role'],
-    (int)$row['target_qty'],
-    (int)$row['realized_qty'],
-    (int)$row['target_point'],
-    (int)$row['total_point'],
-    (int)$row['selisih_point'],
-    $row['persentase_capaian'] === null ? '-' : number_format((float)$row['persentase_capaian'], 2, '.', ''),
+    number_format((float)$row['target_qty'], 1, '.', ''),
+    number_format((float)$row['realized_qty'], 1, '.', ''),
+    number_format((float)$row['target_point'], 1, '.', ''),
+    number_format((float)$row['total_point'], 1, '.', ''),
+    number_format((float)$row['selisih_point'], 1, '.', ''),
+    $row['persentase_capaian'] === null ? '-' : number_format((float)$row['persentase_capaian'], 1, '.', ''),
     (string)$row['approval_status_text'],
     (string)$row['data_status_text'],
   ]);
@@ -60,11 +60,11 @@ foreach ($rows as $row) {
 
 fputcsv($out, []);
 fputcsv($out, ['TOTAL']);
-fputcsv($out, ['Total Target Qty', (int)$totals['total_target_qty']]);
-fputcsv($out, ['Total Realisasi Qty', (int)$totals['total_realized_qty']]);
-fputcsv($out, ['Total Target Point', (int)$totals['total_target_point']]);
-fputcsv($out, ['Total Point Semua Pegawai', (int)$totals['total_point_all']]);
-fputcsv($out, ['Rata-rata Capaian', $totals['avg_capaian_percent'] === null ? '-' : number_format((float)$totals['avg_capaian_percent'], 2, '.', '')]);
+fputcsv($out, ['Total Target Qty', number_format((float)$totals['total_target_qty'], 1, '.', '')]);
+fputcsv($out, ['Total Realisasi Qty', number_format((float)$totals['total_realized_qty'], 1, '.', '')]);
+fputcsv($out, ['Total Target Point', number_format((float)$totals['total_target_point'], 1, '.', '')]);
+fputcsv($out, ['Total Point Semua Pegawai', number_format((float)$totals['total_point_all'], 1, '.', '')]);
+fputcsv($out, ['Rata-rata Capaian', $totals['avg_capaian_percent'] === null ? '-' : number_format((float)$totals['avg_capaian_percent'], 1, '.', '')]);
 
 fclose($out);
 exit;

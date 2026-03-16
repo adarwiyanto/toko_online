@@ -13,6 +13,10 @@ ensure_kitchen_kpi_tables();
 ensure_company_announcements_table();
 ensure_employee_attendance_tables();
 
+$formatQty = static function ($qty): string {
+  return number_format((float)$qty, 1, ',', '.');
+};
+
 $me = current_user();
 $role = (string)($me['role'] ?? '');
 if ($role !== 'pegawai_dapur') {
@@ -32,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'set_realization') {
       $activityId = (int)($_POST['activity_id'] ?? 0);
       $date = trim((string)($_POST['realization_date'] ?? app_today_jakarta()));
-      $qty = max(0, (int)($_POST['qty'] ?? 0));
+      $qty = round(max(0, (float)($_POST['qty'] ?? 0)), 1);
       if ($activityId <= 0) {
         throw new Exception('Kegiatan tidak valid.');
       }
@@ -126,7 +130,7 @@ $announcement = latest_active_announcement('dapur');
         <input type="hidden" name="action" value="set_realization">
         <div class="row"><label>Kegiatan</label><select name="activity_id"><?php foreach($activities as $a): ?><option value="<?php echo e($a['id']); ?>"><?php echo e($a['activity_name']); ?></option><?php endforeach; ?></select></div>
         <div class="row"><label>Tanggal</label><input type="date" name="realization_date" value="<?php echo e($today); ?>"></div>
-        <div class="row"><label>Qty Realisasi</label><input type="number" min="0" name="qty" required></div>
+        <div class="row"><label>Qty Realisasi</label><input type="number" step="0.1" min="0" name="qty" required></div>
         <button class="btn" type="submit">Simpan Realisasi</button>
       </form>
     </div>
@@ -141,8 +145,8 @@ $announcement = latest_active_announcement('dapur');
           <?php foreach ($realizationOnlyRows as $fr): $fApproved = (int)$fr['approver_approved']; $fTotal = (int)$fr['approver_total']; ?>
             <tr>
               <td><?php echo e((string)$fr['activity_name']); ?></td>
-              <td><?php echo e((string)$fr['qty']); ?></td>
-              <td><?php echo e((string)((int)$fr['qty'] * (int)$fr['point_value'])); ?></td>
+              <td><?php echo e($formatQty($fr['qty'])); ?></td>
+              <td><?php echo e(number_format(((float)$fr['qty'] * (float)$fr['point_value']), 1, ',', '.')); ?></td>
               <td>
                 <?php if ($fTotal <= 0): ?>Tidak perlu approval / belum tersinkron<?php else: ?>
                   <?php echo e((string)$fApproved . '/' . (string)$fTotal); ?>
@@ -165,8 +169,8 @@ $announcement = latest_active_announcement('dapur');
         <tr>
           <td><?php echo e($r['activity_name']); ?></td>
           <td><?php echo !empty($r['target_approved_at']) ? 'Disetujui' : 'Menunggu persetujuan'; ?></td>
-          <td><?php echo e((string)$r['target_qty']); ?></td>
-          <td><?php echo e((string)$r['realized_qty']); ?></td>
+          <td><?php echo e($formatQty($r['target_qty'])); ?></td>
+          <td><?php echo e($formatQty($r['realized_qty'])); ?></td>
           <td>
             <?php if ((int)$r['realization_id'] <= 0): ?>Belum diinput<?php else: ?>
               <?php echo e((string)$approved . '/' . (string)$total); ?>

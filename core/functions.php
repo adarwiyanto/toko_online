@@ -783,7 +783,7 @@ function ensure_kitchen_kpi_tables(): void {
         user_id INT NOT NULL,
         activity_id INT NOT NULL,
         target_date DATE NOT NULL,
-        target_qty INT NOT NULL DEFAULT 0,
+        target_qty DECIMAL(10,1) NOT NULL DEFAULT 0,
         created_by INT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -801,7 +801,7 @@ function ensure_kitchen_kpi_tables(): void {
         user_id INT NOT NULL,
         activity_id INT NOT NULL,
         realization_date DATE NOT NULL,
-        qty INT NOT NULL DEFAULT 0,
+        qty DECIMAL(10,1) NOT NULL DEFAULT 0,
         created_by INT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -847,6 +847,20 @@ function ensure_kitchen_kpi_tables(): void {
     $addColumnIfMissing($db, 'kitchen_kpi_targets', 'created_by', 'INT NULL AFTER target_qty');
     $addColumnIfMissing($db, 'kitchen_kpi_targets', 'approved_by', 'INT NULL AFTER created_by');
     $addColumnIfMissing($db, 'kitchen_kpi_targets', 'approved_at', 'DATETIME NULL AFTER approved_by');
+
+    $targetQtyTypeStmt = $db->prepare("SELECT DATA_TYPE, NUMERIC_SCALE FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name='kitchen_kpi_targets' AND column_name='target_qty' LIMIT 1");
+    $targetQtyTypeStmt->execute();
+    $targetQtyType = $targetQtyTypeStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    if (($targetQtyType['DATA_TYPE'] ?? '') !== 'decimal' || (int)($targetQtyType['NUMERIC_SCALE'] ?? -1) !== 1) {
+      $db->exec("ALTER TABLE kitchen_kpi_targets MODIFY COLUMN target_qty DECIMAL(10,1) NOT NULL DEFAULT 0");
+    }
+
+    $realQtyTypeStmt = $db->prepare("SELECT DATA_TYPE, NUMERIC_SCALE FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name='kitchen_kpi_realizations' AND column_name='qty' LIMIT 1");
+    $realQtyTypeStmt->execute();
+    $realQtyType = $realQtyTypeStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    if (($realQtyType['DATA_TYPE'] ?? '') !== 'decimal' || (int)($realQtyType['NUMERIC_SCALE'] ?? -1) !== 1) {
+      $db->exec("ALTER TABLE kitchen_kpi_realizations MODIFY COLUMN qty DECIMAL(10,1) NOT NULL DEFAULT 0");
+    }
 
     $addIndexIfMissing($db, 'kitchen_kpi_targets', 'idx_kpi_targets_user_date', '(user_id, target_date)');
     $addIndexIfMissing($db, 'kitchen_kpi_targets', 'idx_kpi_targets_activity_date', '(activity_id, target_date)');
