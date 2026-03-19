@@ -609,7 +609,7 @@ function deduct_stok_barang_for_order_if_needed(int $orderId, int $branchId): bo
   foreach ($stmtItems->fetchAll() as $row) {
     $pid = (int)($row['inv_product_id'] ?? 0);
     $qty = (float)($row['qty_sum'] ?? 0);
-    if ($pid > 0 && abs($qty) > 0.0005) {
+    if ($pid > 0 && abs($qty) > 0.05) {
       $current = stock_get_qty($branchId, $pid);
       if ($current < $qty) {
         throw new RuntimeException('Stok tidak cukup untuk order #' . $orderId);

@@ -30,7 +30,7 @@ function sales_adjust_stock_by_transaction(string $transactionCode, int $branchI
   foreach ($stmt->fetchAll() as $row) {
     $pid = (int)($row['product_id'] ?? 0);
     $qty = (float)($row['qty_sum'] ?? 0);
-    if ($pid > 0 && abs($qty) > 0.0005) {
+    if ($pid > 0 && abs($qty) > 0.05) {
       stok_barang_add_qty($branchId, $pid, $qty * $multiplier);
     }
   }

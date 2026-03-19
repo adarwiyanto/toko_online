@@ -70,7 +70,7 @@ $customCss = setting('custom_css', '');
                     <td><?php echo e((string)($row['sku'] ?? '-')); ?></td>
                     <td><?php echo e((string)($row['name'] ?? '-')); ?></td>
                     <td><?php echo e((string)($row['unit'] ?? '-')); ?></td>
-                    <td><?php echo e(number_format((float)($row['stock'] ?? 0), 3, '.', ',')); ?></td>
+                    <td><?php echo e(number_format((float)($row['stock'] ?? 0), 1, '.', ',')); ?></td>
                   </tr>
                 <?php endforeach; ?>
               <?php endif; ?>
